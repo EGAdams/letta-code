@@ -2071,6 +2071,30 @@ body.startup-loading #provider-token-sync-modal button {
 .win98-confirm-box p { padding: 10px 14px 0; }
 .win98-confirm-box .modal-actions { padding: 0 10px 10px; }
 .win98-confirm-box button { min-width: 72px; }
+.win98-progress-shell {
+  height: 20px;
+  padding: 2px;
+  border: 2px inset #808080;
+  background: #c0c0c0;
+}
+.win98-progress-fill {
+  height: 100%;
+  width: 0%;
+  background-image: repeating-linear-gradient(
+    90deg, #000080 0, #000080 6px, #c0c0c0 6px, #c0c0c0 8px
+  );
+  transition: width 220ms ease;
+}
+.win98-progress-fill.warn {
+  background-image: repeating-linear-gradient(
+    90deg, #b8860b 0, #b8860b 6px, #c0c0c0 6px, #c0c0c0 8px
+  );
+}
+.win98-progress-fill.danger {
+  background-image: repeating-linear-gradient(
+    90deg, #800000 0, #800000 6px, #c0c0c0 6px, #c0c0c0 8px
+  );
+}
 .vendor-review-panel {
   margin-top: 16px;
   padding: 12px 14px;

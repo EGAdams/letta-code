@@ -87,10 +87,10 @@ describe("mounting", () => {
 });
 
 describe("category taxonomy", () => {
-  test("loads the same list the entry form loads and hands it to the dialog", async () => {
+  test("loads the full expense category list and hands it to the dialog", async () => {
     const { panel, http } = setup({ categories: ["Office", "Rosemary"] });
     await panel.mount();
-    expect(http.calls).toEqual(["/api/rol-finance-categories"]);
+    expect(http.calls).toEqual(["/api/expense-categories"]);
     expect(panel.categoryNames).toEqual(["Office", "Rosemary"]);
     expect(panel.dialog._categoryNames()).toEqual(["Office", "Rosemary"]);
   });
@@ -103,78 +103,141 @@ describe("category taxonomy", () => {
   });
 });
 
-describe("deep link from the daily spreadsheet", () => {
-  // The 2025 workbook links every description cell to
-  // edit_expense.html?expense_id=..&date=.., so a click in Excel must land on
-  // that row already populated rather than on an empty search form.
-  function fakeDialog(records, holder) {
-    return class {
-      constructor() {
-        this.selected = null;
-        this.status = null;
-        this.searchedDate = null;
-        holder.last = this;
-      }
-      render() {}
-      toggle() {}
-      async searchByDate(date) {
-        this.searchedDate = date;
-        return records;
-      }
-      selectStoredExpense(id) {
-        this.selected = id;
-      }
-      setStatusMessage(text) {
-        this.status = text;
-      }
-    };
-  }
-
-  function mountWith(search, records) {
-    const { doc, root, http } = setup();
+describe("expense deep links", () => {
+  async function mountLink(search, records) {
+    const { doc, root, http, panel } = setup(
+      { categories: ["Office"] },
+      { expanded: true },
+    );
     doc.defaultView = { location: { search } };
-    const holder = {};
-    const panel = new ExpenseEditPanel({
-      http,
-      root,
-      doc,
-      EditDialog: fakeDialog(records, holder),
-      expanded: true,
-    });
-    return { panel, holder };
+    const calls = [];
+    http.postJSON = async (url, body) => {
+      calls.push({ url, body });
+      return {
+        ok: true,
+        records: records.filter((r) => r.id === body.expense_id),
+      };
+    };
+    await panel.mount();
+    return { panel, root, calls };
   }
+  const record = {
+    id: 3414,
+    transaction_date: "2025-01-01",
+    total_amount: 26.79,
+    description: "Meijer",
+    category_name: "Office",
+  };
 
-  test("selects the expense the URL names", async () => {
-    const { panel, holder } = mountWith("?expense_id=2431&date=2025-07-14", [
-      { id: 2431 },
-      { id: 99 },
-    ]);
-    await panel.mount();
-    expect(holder.last.searchedDate).toBe("2025-07-14");
-    expect(holder.last.selected).toBe(2431);
+  test("opens only the requested ID, even with a stale date in an old report", async () => {
+    const { panel, root, calls } = await mountLink(
+      "?expense_id=3414&date=2024-12-31",
+      [record, { ...record, id: 461, total_amount: 408.85 }],
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.expense_id).toBe(3414);
+    expect(calls[0].body.date_from).toBe("");
+    expect(calls[0].body.date_to).toBe("");
+    expect(panel.dialog.selectedId).toBe(3414);
+    expect(panel.dialog.editMerchantInput.value).toBe("Meijer");
+    expect(panel.dialog.editAmountInput.value).toBe("26.79");
+    expect(panel.dialog.resultsEl.children).toHaveLength(1);
+    expect(root.querySelector("h2").textContent).toBe("Editing expense #3414");
+    expect(panel.dialog.expenseIdInput.value).toBe("3414");
   });
 
-  test("explains itself when the id is not on that date", async () => {
-    const { panel, holder } = mountWith("?expense_id=2431&date=2025-07-14", [
-      { id: 99 },
-    ]);
-    await panel.mount();
-    expect(holder.last.selected).toBeNull();
-    expect(holder.last.status).toContain("2431");
+  test("supports ID-only links and clearly identifies a missing expense", async () => {
+    const found = await mountLink("?expense_id=3414", [record]);
+    expect(found.panel.dialog.selectedId).toBe(3414);
+    const missing = await mountLink("?expense_id=999999", []);
+    expect(missing.panel.dialog.selectedId).toBeNull();
+    expect(missing.root.querySelector("h2").textContent).toContain("999999");
+    expect(missing.root.querySelector("h2").textContent).toContain("not found");
   });
 
-  test("ignores a malformed or absent link and stays a plain search form", async () => {
-    for (const search of [
+  test("rejects malformed IDs without sending a search", async () => {
+    for (const query of [
       "",
-      "?expense_id=abc&date=2025-07-14",
-      "?expense_id=2431",
-      "?expense_id=2431&date=07/14/2025",
-      "?expense_id=-5&date=2025-07-14",
+      "?expense_id=abc",
+      "?expense_id=-5",
+      "?expense_id=3414junk",
+      "?expense_id=1.2",
     ]) {
-      const { panel, holder } = mountWith(search, [{ id: 2431 }]);
-      await panel.mount();
-      expect(holder.last.searchedDate).toBeNull();
-      expect(holder.last.selected).toBeNull();
+      const { panel, calls } = await mountLink(query, [record]);
+      expect(calls).toHaveLength(0);
+      expect(panel.dialog.selectedId).toBeNull();
     }
   });
+});
+
+describe("exact expense categories", () => {
+  test("selects and saves the stored leaf, rather than its reporting heading", async () => {
+    const leaf = "Church / Utilities / Church Electric Bill [123]";
+    const housing = "Housing / Housing Utilities / Housing Electric Bill [314]";
+    const { doc, panel, http } = setup(
+      {
+        categories: [
+          { id: 120, name: "Church / Utilities [120]" },
+          { id: 123, name: leaf },
+          { id: 314, name: housing },
+          { id: 3, name: "Personal [3]" },
+        ],
+      },
+      { expanded: true },
+    );
+    doc.defaultView = { location: { search: "?expense_id=3414" } };
+    const row = {
+      id: 3414,
+      transaction_date: "2025-01-01",
+      total_amount: 26.79,
+      description: "Meijer",
+      category_id: 123,
+      category_name: "Church Utilities",
+    };
+    const saves = [];
+    http.postJSON = async (url, body) => {
+      if (url === "/api/expense-edit") {
+        saves.push(body);
+        return { ok: true, record: { ...row, category_id: 314 } };
+      }
+      return { ok: true, records: [row] };
+    };
+    await panel.mount();
+    expect(panel.dialog.editCategorySelect.value).toBe(leaf);
+    expect(
+      panel.dialog.editCategorySelect.children.map((option) => option.value),
+    ).toContain(housing);
+    panel.dialog.editCategorySelect.value = housing;
+    await panel.dialog._save();
+    expect(saves).toHaveLength(1);
+    expect(saves[0].category_name).toBe(housing);
+    expect(panel.dialog.editCategorySelect.value).toBe(housing);
+  });
+});
+
+test("a category-list outage never changes the stored category to unresolved", async () => {
+  const { doc, panel, http } = setup({ fail: true }, { expanded: true });
+  doc.defaultView = { location: { search: "?expense_id=3414" } };
+  http.postJSON = async () => ({
+    ok: true,
+    records: [
+      {
+        id: 3414,
+        transaction_date: "2025-01-01",
+        total_amount: 26.79,
+        description: "Meijer",
+        category_id: 130,
+        category_name: "Food & Hospitality",
+      },
+    ],
+  });
+  await panel.mount();
+  expect(panel.dialog.editCategorySelect.value).toBe(
+    "Current category unavailable [130]",
+  );
+  panel.dialog.toggle();
+  panel.dialog.toggle();
+  expect(panel.dialog.editCategorySelect.value).toBe(
+    "Current category unavailable [130]",
+  );
 });

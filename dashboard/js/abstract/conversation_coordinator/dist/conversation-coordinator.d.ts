@@ -133,6 +133,14 @@ export declare class DeterministicSentenceSegmenter
   reset(): void;
   private takeSentence;
   private takeLengthBoundedPhrase;
+  /**
+   * A raw "last space in the window" split can land inside a short clause
+   * ("was much" | "faster: ...") when the buffer never hit sentence-ending
+   * punctuation before crossing maxCharacters. Prefer the nearest clause
+   * boundary (colon, semicolon, em dash) in the window so the fallback still
+   * reads as a pause between thoughts, not a cut mid-thought.
+   */
+  private findSplitPoint;
 }
 /** Mediator for agent streaming, turn fencing, segmentation, and ordered speech. */
 export declare class ConversationCoordinator

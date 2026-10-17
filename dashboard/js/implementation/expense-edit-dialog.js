@@ -18,11 +18,12 @@
 import {
   blankSearchCriteria,
   buildEditPayload,
+  buildNeighborPayload,
   buildSearchPayload,
   describeEditResult,
   formatRecordLabel,
-  mileageDisplayParts,
   readEditResponse,
+  readNeighborResponse,
   readSearchResponse,
   recordToFields,
   validateSearchCriteria,
@@ -36,6 +37,7 @@ import {
   deleteConfirmMessage,
   readRowActionResponse,
 } from "../abstract/verified-transaction-actions.interface.js";
+import { ExpenseCategoryPicker } from "./expense-category-picker.js";
 
 const NO_CATEGORY_OPTION = "";
 
@@ -46,6 +48,7 @@ export class ExpenseEditDialog {
    *   root: Element,
    *   doc?: Document,
    *   categoryNames?: () => string[],
+   *   categoryNameForId?: (id: number | null) => string,
    *   onSaved?: (result: object) => void,
    *   onSelected?: (expenseId: number) => void,
    *   onDeleted?: (expenseId: number) => void,
@@ -60,10 +63,13 @@ export class ExpenseEditDialog {
     root,
     doc = globalThis.document,
     categoryNames,
+    categoryNameForId = () => "",
     onSaved,
     onSelected,
     onDeleted,
     confirm = (message) => globalThis.confirm(message),
+    alert = (message) => globalThis.alert(message),
+    openUrl = (url) => globalThis.open?.(url, "_blank", "noopener,noreferrer"),
   }) {
     if (!root)
       throw new TypeError("ExpenseEditDialog requires a mount element");
@@ -71,9 +77,11 @@ export class ExpenseEditDialog {
     this.http = http;
     this.root = root;
     this.doc = doc;
+    this._openUrl = openUrl;
     // A getter, not a snapshot: the form reloads its taxonomy after a save
     // that remembered a new vendor, and this panel must see the same list.
     this._categoryNames = categoryNames || (() => []);
+    this._categoryNameForId = categoryNameForId;
     this._onSaved = onSaved || (() => {});
     // Lets an outside quick-lookup (the manual-entry form's "Expense #" box)
     // stay in sync when a record is picked from this panel's own search
@@ -81,6 +89,7 @@ export class ExpenseEditDialog {
     this._onSelected = onSelected || (() => {});
     this._onDeleted = onDeleted || (() => {});
     this._confirm = confirm;
+    this._alert = alert;
     this.records = [];
     this.selectedId = null;
     this.isOpen = false;
@@ -97,11 +106,29 @@ export class ExpenseEditDialog {
     const search = this._el("div", { className: "manual-entry-item-nav" });
     this.panel.appendChild(search);
     this.merchantInput = this._field(search, "Merchant contains", "text");
+    this.expenseIdInput = this._field(search, "Expense ID", "text");
     this.dateFromInput = this._field(search, "From date", "date");
     this.dateToInput = this._field(search, "To date", "date");
     this.amountInput = this._field(search, "Amount", "text");
     this.searchButton = this._button(search, "Search", "expense-search");
     this.searchButton.addEventListener("click", () => this._search());
+
+    // Enter in any search field acts like pressing Search, same as a normal
+    // browser form submit -- but these inputs aren't inside a <form>, so that
+    // behaviour has to be wired explicitly.
+    for (const input of [
+      this.merchantInput,
+      this.expenseIdInput,
+      this.dateFromInput,
+      this.dateToInput,
+      this.amountInput,
+    ]) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        this._search();
+      });
+    }
 
     this.resultsEl = this._el("div", { className: "expense-edit-results" });
     this.panel.appendChild(this.resultsEl);
@@ -118,12 +145,56 @@ export class ExpenseEditDialog {
     this.editAmountInput = this._field(this.editEl, "Amount", "text");
 
     // Mazda-captured, not operator-editable: no ExpenseEdit field carries a
-    // correction for these back to the server, so this is display only.
-    const mileageWrap = this._el("div", { className: "manual-entry-field" });
+    // correction for these back to the server, so this is display only. The
+    // map link itself is a same-size "Show Map" button rather than a text
+    // link -- it opens in a new tab on click, same destination as before.
+    const mileageWrap = this._el("div", {
+      className: "manual-entry-field expense-edit-mileage-row",
+    });
     this.editEl.appendChild(mileageWrap);
-    mileageWrap.appendChild(this._el("label", { text: "Address / mileage" }));
-    this.editMileageEl = this._el("div", { className: "expense-edit-mileage" });
-    mileageWrap.appendChild(this.editMileageEl);
+    this.showMapButton = this._button(
+      mileageWrap,
+      "Show Map",
+      "expense-edit-show-map",
+    );
+    this.showMapButton.classList.add("expense-edit-fixed-size-button");
+    this.showMapButton.addEventListener("click", () => this._showMap());
+
+    const distanceWrap = this._el("div", { className: "manual-entry-field" });
+    mileageWrap.appendChild(distanceWrap);
+    distanceWrap.appendChild(this._el("label", { text: "Distance" }));
+    this.editDistanceEl = this._el("input");
+    this.editDistanceEl.type = "number";
+    this.editDistanceEl.step = "0.1";
+    this.editDistanceEl.min = "0";
+    distanceWrap.appendChild(this.editDistanceEl);
+    // Mileage is always 2x Distance -- never a separate thing to type in.
+    this.editDistanceEl.addEventListener("input", () =>
+      this._recomputeMileage(),
+    );
+
+    const mileageValueWrap = this._el("div", {
+      className: "manual-entry-field",
+    });
+    mileageWrap.appendChild(mileageValueWrap);
+    mileageValueWrap.appendChild(this._el("label", { text: "Mileage" }));
+    this.editMileageValueEl = this._el("input", {
+      className: "expense-edit-mileage-value",
+    });
+    this.editMileageValueEl.type = "text";
+    this.editMileageValueEl.readOnly = true;
+    mileageValueWrap.appendChild(this.editMileageValueEl);
+
+    // Also Mazda-captured today, but unlike Address/Distance this one *is*
+    // operator-editable -- a wrong or missing map link should be fixable
+    // without re-running intake. Saved through Save Changes like Distance.
+    const mapLinkWrap = this._el("div", { className: "manual-entry-field" });
+    this.editEl.appendChild(mapLinkWrap);
+    mapLinkWrap.appendChild(this._el("label", { text: "Map Link" }));
+    this.editMapLinkInput = this._el("input");
+    this.editMapLinkInput.type = "text";
+    this.editMapLinkInput.className = "manual-entry-field-wide";
+    mapLinkWrap.appendChild(this.editMapLinkInput);
 
     const categoryWrap = this._el("div", { className: "manual-entry-field" });
     this.editEl.appendChild(categoryWrap);
@@ -131,6 +202,14 @@ export class ExpenseEditDialog {
     this.editCategorySelect = this._el("select");
     this.editCategorySelect.dataset.field = "editCategoryName";
     categoryWrap.appendChild(this.editCategorySelect);
+    this.categoryPicker = new ExpenseCategoryPicker({
+      http: this.http,
+      doc: this.doc,
+      root: categoryWrap,
+      select: this.editCategorySelect,
+      categoryNames: this._categoryNames,
+      description: () => this.editMerchantInput.value,
+    });
 
     // Same purpose as the Add Expense page's Notes field, and the same
     // /api/save-expense-notes endpoint -- but this row is already stored, so
@@ -159,6 +238,7 @@ export class ExpenseEditDialog {
       "Save Changes",
       "expense-edit-save",
     );
+    this.saveButton.classList.add("expense-edit-fixed-size-button");
     this.saveButton.addEventListener("click", () => this._save());
     this.deleteButton = this._button(
       this.editEl,
@@ -166,6 +246,15 @@ export class ExpenseEditDialog {
       "expense-edit-delete",
     );
     this.deleteButton.addEventListener("click", () => this._delete());
+
+    // Walks the whole `expenses` table by id, not the current search
+    // results -- these labels say "Record", not "Match", on purpose.
+    const editNav = this._el("div", { className: "expense-edit-nav" });
+    this.editEl.appendChild(editNav);
+    this.prevButton = this._button(editNav, "Prev Record", "expense-edit-prev");
+    this.prevButton.addEventListener("click", () => this._navigate("prev"));
+    this.nextButton = this._button(editNav, "Next Record", "expense-edit-next");
+    this.nextButton.addEventListener("click", () => this._navigate("next"));
 
     this.statusEl = this._el("div", { className: "manual-entry-status" });
     this.panel.appendChild(this.statusEl);
@@ -184,6 +273,7 @@ export class ExpenseEditDialog {
   _readCriteria() {
     return {
       ...blankSearchCriteria(),
+      expenseId: this.expenseIdInput.value,
       merchant: this.merchantInput.value,
       dateFrom: this.dateFromInput.value,
       dateTo: this.dateToInput.value,
@@ -191,7 +281,22 @@ export class ExpenseEditDialog {
     };
   }
 
-  async _search() {
+  /** Open an exact ID through the same validated search used by the form. */
+  async searchById(expenseId) {
+    this.expenseIdInput.value = String(expenseId);
+    for (const input of [
+      this.merchantInput,
+      this.dateFromInput,
+      this.dateToInput,
+      this.amountInput,
+    ]) {
+      input.value = "";
+    }
+    await this._search({ alertMissing: false });
+    return this.selectedId === expenseId;
+  }
+
+  async _search({ alertMissing = true } = {}) {
     const criteria = this._readCriteria();
     const check = validateSearchCriteria(criteria);
     if (!check.valid) {
@@ -212,6 +317,17 @@ export class ExpenseEditDialog {
         return;
       }
       this._setRecords(result.records);
+      const wantedId = Number.parseInt(criteria.expenseId, 10);
+      if (Number.isInteger(wantedId) && wantedId > 0) {
+        const match = result.records.find((r) => r.id === wantedId);
+        if (match) {
+          this._select(match.id);
+          return;
+        }
+        this._setStatus("Expense not found.");
+        if (alertMissing) this._alert("Expense not found.");
+        return;
+      }
       this._setStatus(
         result.records.length
           ? `${result.records.length} match(es). Pick one to edit.`
@@ -288,11 +404,56 @@ export class ExpenseEditDialog {
     this._setStatus(text);
   }
 
+  /** Same ordering _renderResults draws on screen -- the one list Prev/Next
+   * and the results panel must agree on. */
+  _sortedRecords() {
+    return [...this.records].sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /**
+   * Step to the previous or next row across the *whole* expenses table, by
+   * id -- not the current search results. Each click is a fresh lookup, so
+   * this keeps working past the edge of whatever this.records happens to
+   * hold.
+   * @param {"prev"|"next"} direction
+   */
+  async _navigate(direction) {
+    if (this.selectedId === null) {
+      this._setStatus("Pick a row from the search results first.");
+      return;
+    }
+    const button = direction === "prev" ? this.prevButton : this.nextButton;
+    button.disabled = true;
+    button.classList.add("is-pressed");
+    try {
+      const json = await this.http.postJSON(
+        "/api/expense-neighbor",
+        buildNeighborPayload(this.selectedId, direction),
+      );
+      const result = readNeighborResponse(json);
+      if (!result.ok) {
+        this._setStatus(
+          direction === "prev"
+            ? "Already at the first record."
+            : "Already at the last record.",
+        );
+        return;
+      }
+      if (!this.records.some((r) => r.id === result.record.id)) {
+        this.records = [...this.records, result.record];
+      }
+      this._select(result.record.id);
+    } catch (err) {
+      this._setStatus(`Navigation request failed: ${this._message(err)}`);
+    } finally {
+      button.disabled = false;
+      button.classList.remove("is-pressed");
+    }
+  }
+
   _renderResults() {
     this.resultsEl.innerHTML = "";
-    const sorted = [...this.records].sort(
-      (a, b) => b.totalAmount - a.totalAmount,
-    );
+    const sorted = this._sortedRecords();
     for (const record of sorted) {
       const button = this._el("button", { text: formatRecordLabel(record) });
       button.type = "button";
@@ -307,17 +468,33 @@ export class ExpenseEditDialog {
     const record = this.records.find((r) => r.id === expenseId);
     if (!record) return;
     this.selectedId = record.id;
+    this.categoryPicker.close();
     const fields = recordToFields(record);
     this.editMerchantInput.value = fields.merchantName;
     this.editDateInput.value = fields.transactionDate;
     this.editAmountInput.value = fields.totalAmount;
     this._renderMileageDetail(record);
+    this.editMapLinkInput.value = record.mapLink || "";
     this._renderCategoryOptions();
-    this.editCategorySelect.value = this._categoryNames().includes(
-      fields.categoryName,
-    )
-      ? fields.categoryName
-      : NO_CATEGORY_OPTION;
+    const exactName =
+      this.categoryPicker.nameForId(record.categoryId) ||
+      this._categoryNameForId(record.categoryId);
+    const categoryName = exactName || fields.categoryName;
+    if (
+      exactName &&
+      !Array.from(this.editCategorySelect.children).some(
+        (option) => option.value === exactName,
+      )
+    ) {
+      const unavailable = this._el("option", { text: exactName });
+      unavailable.value = exactName;
+      this.editCategorySelect.appendChild(unavailable);
+    }
+    this.categoryPicker.setValue(
+      exactName || this.categoryPicker.names().includes(categoryName)
+        ? categoryName
+        : NO_CATEGORY_OPTION,
+    );
     this.editNotesInput.value = record.notes;
     // The baseline Save compares the box against, so re-saving without
     // touching Notes never fires a spurious write, but clearing it out is
@@ -335,6 +512,8 @@ export class ExpenseEditDialog {
       transactionDate: this.editDateInput.value,
       totalAmount: this.editAmountInput.value,
       categoryName: this.editCategorySelect.value,
+      distanceMiles: this.editDistanceEl.value,
+      mapLink: this.editMapLinkInput.value,
     };
   }
 
@@ -445,17 +624,7 @@ export class ExpenseEditDialog {
   }
 
   _renderCategoryOptions() {
-    const selected = this.editCategorySelect.value;
-    this.editCategorySelect.innerHTML = "";
-    const blank = this._el("option", { text: "— leave unresolved —" });
-    blank.value = NO_CATEGORY_OPTION;
-    this.editCategorySelect.appendChild(blank);
-    for (const name of this._categoryNames()) {
-      const option = this._el("option", { text: name });
-      option.value = name;
-      this.editCategorySelect.appendChild(option);
-    }
-    this.editCategorySelect.value = selected;
+    this.categoryPicker.renderOptions();
   }
 
   _field(parent, labelText, type) {
@@ -477,33 +646,30 @@ export class ExpenseEditDialog {
   }
 
   /**
-   * Renders the read-only Address / Distance line. When `mapLink` is already
-   * on the record, the address itself becomes a link to it -- never derived
-   * or looked up here, only displayed if Mazda's intake pipeline already set
-   * it. Otherwise the address (or a placeholder) is plain text.
+   * Fills the Show Map button, Distance, and Mileage controls. The address
+   * itself is no longer shown -- the button is self-explanatory. Distance is
+   * operator-editable and saved through Save Changes; Mileage is always
+   * derived from it (one leg vs. the IRS's round-trip figure), never typed in.
    */
   _renderMileageDetail(record) {
-    this.editMileageEl.textContent = "";
-    this.editMileageEl.innerHTML = "";
-    const parts = mileageDisplayParts(record);
-    if (!parts) {
-      this.editMileageEl.textContent = "No address on record for this receipt.";
-      return;
-    }
-    if (parts.mapLink) {
-      const link = this._el("a", { text: parts.address });
-      link.href = parts.mapLink;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      this.editMileageEl.appendChild(link);
-    } else {
-      this.editMileageEl.appendChild(this._el("span", { text: parts.address }));
-    }
-    if (parts.distanceSuffix) {
-      this.editMileageEl.appendChild(
-        this._el("span", { text: parts.distanceSuffix }),
-      );
-    }
+    this._mapLink = record.mapLink || null;
+    this.showMapButton.disabled = !this._mapLink;
+    this.editDistanceEl.value =
+      record.distanceMiles === null ? "" : record.distanceMiles.toFixed(1);
+    this._recomputeMileage();
+  }
+
+  _recomputeMileage() {
+    const distance = Number(this.editDistanceEl.value);
+    this.editMileageValueEl.value =
+      this.editDistanceEl.value !== "" && Number.isFinite(distance)
+        ? `${(distance * 2).toFixed(1)} mi`
+        : "";
+  }
+
+  _showMap() {
+    if (!this._mapLink) return;
+    this._openUrl(this._mapLink);
   }
 
   _el(tag, { className, text } = {}) {

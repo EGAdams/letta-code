@@ -84,6 +84,14 @@ strategy owns the existing receipt/statement adapters. The browser builds the th
 manual-entry form independent of the concrete actions. The former `/api/mazda-fill` route and
 single “Mazda Fill” button no longer exist.
 
+### Direct expense links
+
+`/edit_expense.html?expense_id=3414` opens only that expense, with its ID at
+the top and its fields already filled in. Old spreadsheet/report links may
+still include `date=...`; lookup uses the expense ID so a changed date does
+not hide the record. Missing records and failed loads leave a visible message
+and the normal Search controls available. Opening a link never saves an edit.
+
 ### Edit Expense audit trail
 
 Every `POST /api/expense-edit` attempt writes one JSON Lines event to
@@ -249,3 +257,32 @@ failure traces to either.
 ChatGPT-OAuth → standalone OpenAI. The Codex leg (`codex_cli_vision.py`) renders PDF pages to PNG
 via `pdftoppm` before attaching — never send a raw PDF to the ChatGPT `input_image` backend, it's
 rejected. Uses the existing Codex OAuth subscription, never `OPENAI_API_KEY`.
+
+### Edit Expense category choices
+
+The editor loads every active database category from `/api/expense-categories`,
+including parent categories and specific leaves. Options show the ID, category
+name, then parent path, such as `[422] Sams Club / Church / Food & Supplies`.
+The list sorts by category name, with aligned monospace ID and name columns.
+This is display formatting; each option retains its canonical full-path value
+for saving. The creation form's parent selector uses the same formatting. Opening an
+expense selects its exact stored `category_id`, rather than its reporting bucket.
+The same catalog validates saves; unknown/inactive choices are refused. The
+existing `/api/rol-finance-categories` palette remains for reporting headings.
+If the catalog is unavailable, the current ID is displayed as unavailable and
+cannot accidentally be saved as unresolved. Reload before saving that category.
+
+The first dropdown item, **Add a new category and vendor key…**, opens an inline
+form. Choose an existing parent, enter the new category name, a reusable key
+(lowercase letters, numbers and underscores), and the merchant description.
+**Add category and vendor key** saves the category and canonical vendor rule
+through `/api/expense-category-vendor`, then selects the new category. It does
+not edit the expense: **Save Changes** applies that choice to the current row.
+Cancel keeps the previous choice. If the vendor key exists, the form shows its
+current category and the proposed new path without writing anything. **Create
+category and move vendor rule** explicitly confirms reassignment for future
+matching. The server checks that the old category still matches the preview;
+changed rules require a fresh confirmation. Existing expenses are unchanged.
+Changing form fields invalidates the previous confirmation. If category creation succeeds but saving the
+vendor rule fails, the form reports that partial result and retry reuses the
+category rather than creating another one.

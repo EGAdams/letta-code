@@ -1,0 +1,54 @@
+- generic [ref=e1]:
+  - complementary [ref=e11]:
+    - heading "Dashboard" [level=1] [ref=e12]
+    - navigation [ref=e13]:
+      - button "Home" [ref=e18] [cursor=pointer]
+      - button "ROL Finance" [ref=e19] [cursor=pointer]
+      - button "System Status" [ref=e20] [cursor=pointer]
+      - button "Agent Management" [ref=e21] [cursor=pointer]
+      - button "Project Plans" [ref=e22] [cursor=pointer]
+      - button "Agent Blocks" [ref=e23] [cursor=pointer]
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - heading "Toyota" [level=2] [ref=e16]
+      - paragraph [ref=e17]: Your receptionist. Press Start Listening when you're ready to talk to her, or just type.
+      - generic [ref=e24]:
+        - paragraph [ref=e25]:
+          - text: Input options for
+          - strong [ref=e26]: Toyota
+          - text: ":"
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e29]: "Model:"
+            - combobox [ref=e30]:
+              - option "gpt-5.6-sol" [selected]
+              - option "gpt-5.6-luna"
+              - option "gpt-5.6-terra"
+          - generic [ref=e31]:
+            - generic [ref=e32]: "Voice:"
+            - combobox [ref=e33]:
+              - option "Default (Sonia, UK)"
+              - option "Ana (Female)"
+              - option "Aria (Female)"
+              - option "Ava (Female)" [selected]
+              - option "Ava Multilingual (Female)"
+              - option "Emma (Female)"
+              - option "Emma Multilingual (Female)"
+              - option "Jenny (Female)"
+              - option "Michelle (Female)"
+              - option "Andrew (Male)"
+              - option "Brian (Male)"
+              - option "Christopher (Male)"
+              - option "Eric (Male)"
+              - option "Guy (Male)"
+              - option "Roger (Male)"
+              - option "Steffan (Male)"
+          - textbox "Type or speak here…" [active] [ref=e34]
+          - button "Start Listening" [ref=e35] [cursor=pointer]
+          - textbox "Tell Toyota how to edit the note…" [ref=e36]
+          - button "Send" [ref=e37] [cursor=pointer]
+          - button "Save Note" [ref=e38] [cursor=pointer]
+          - button "Start Editing" [ref=e39] [cursor=pointer]
+          - button "Start" [ref=e41] [cursor=pointer]
+          - button "Auto Send" [ref=e42] [cursor=pointer]
+          - button "Copy to Clipboard" [ref=e43] [cursor=pointer]

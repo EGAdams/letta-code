@@ -56,6 +56,20 @@ class FakeCursor:
         if normalized.startswith('UPDATE'):
             self._result = []
             return
+        if 'WHERE id < %s ORDER BY id DESC LIMIT 1' in normalized:
+            target = params[0]
+            candidates = sorted(
+                (r for r in self._rows if r['id'] < target),
+                key=lambda r: r['id'], reverse=True)
+            self._result = candidates[:1]
+            return
+        if 'WHERE id > %s ORDER BY id ASC LIMIT 1' in normalized:
+            target = params[0]
+            candidates = sorted(
+                (r for r in self._rows if r['id'] > target),
+                key=lambda r: r['id'])
+            self._result = candidates[:1]
+            return
         self._result = list(self._rows)
 
     def fetchall(self):

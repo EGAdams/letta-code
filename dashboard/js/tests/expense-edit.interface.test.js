@@ -6,6 +6,7 @@ import {
   describeEditResult,
   formatMileageDetail,
   formatRecordLabel,
+  mileageDisplayParts,
   readEditResponse,
   readExpenseRecord,
   readSearchResponse,
@@ -31,7 +32,7 @@ describe("validateSearchCriteria", () => {
   test("an empty search is a mistake, not a request for everything", () => {
     const result = validateSearchCriteria(criteria());
     expect(result.valid).toBe(false);
-    expect(result.errors.merchant).toContain("Enter a merchant");
+    expect(result.errors.merchant).toContain("Enter an expense ID");
   });
 
   test("any one criterion is enough", () => {
@@ -112,6 +113,7 @@ describe("readExpenseRecord", () => {
       address: "",
       distanceMiles: null,
       mapLink: "",
+      categoryId: null,
       categoryName: "Office",
       notes: "",
     });
@@ -177,6 +179,43 @@ describe("formatMileageDetail", () => {
         distanceMiles: null,
       }),
     ).toBe("233 S Wacker Dr, Chicago, IL 60606");
+  });
+
+  test("a map_link with no address column falls back to its destination (expense 710)", () => {
+    expect(
+      formatMileageDetail({
+        address: "",
+        distanceMiles: 12.3,
+        mapLink:
+          "https://www.google.com/maps/dir/?api=1&origin=1854+Gratiot+St+NW%2C+Grand+Rapids%2C+MI+49504&destination=2750+28th+St+SE%2C+Grand+Rapids%2C+MI+49512&travelmode=driving",
+      }),
+    ).toBe("2750 28th St SE, Grand Rapids, MI 49512 · 12.3 mi from home");
+  });
+
+  test("no address and no map_link is still no detail", () => {
+    expect(
+      formatMileageDetail({ address: "", distanceMiles: null, mapLink: "" }),
+    ).toBe("");
+  });
+});
+
+describe("mileageDisplayParts", () => {
+  test("no address and no map_link returns null", () => {
+    expect(
+      mileageDisplayParts({ address: "", distanceMiles: null, mapLink: "" }),
+    ).toBeNull();
+  });
+
+  test("a map_link with no address column still renders a link (expense 710)", () => {
+    const mapLink =
+      "https://www.google.com/maps/dir/?api=1&origin=1854+Gratiot+St+NW%2C+Grand+Rapids%2C+MI+49504&destination=2750+28th+St+SE%2C+Grand+Rapids%2C+MI+49512&travelmode=driving";
+    expect(
+      mileageDisplayParts({ address: "", distanceMiles: 12.3, mapLink }),
+    ).toEqual({
+      address: "2750 28th St SE, Grand Rapids, MI 49512",
+      distanceSuffix: " · 12.3 mi from home",
+      mapLink,
+    });
   });
 });
 
@@ -254,7 +293,33 @@ describe("recordToFields / buildEditPayload", () => {
       transaction_date: "2026-08-15",
       total_amount: 12.34,
       category_name: "Office",
+      distance_miles: null,
+      map_link: "",
     });
+  });
+
+  test("includes a valid distance as a number", () => {
+    const fields = recordToFields(readExpenseRecord(RECORD_JSON));
+    expect(
+      buildEditPayload(501, { ...fields, distanceMiles: "5.5" }).distance_miles,
+    ).toBe(5.5);
+  });
+
+  test("blank distance means unchanged/unknown, not a refusal", () => {
+    const fields = recordToFields(readExpenseRecord(RECORD_JSON));
+    expect(
+      buildEditPayload(501, { ...fields, distanceMiles: "" }).distance_miles,
+    ).toBe(null);
+  });
+
+  test("refuses the whole payload for a negative or unparsable distance", () => {
+    const fields = recordToFields(readExpenseRecord(RECORD_JSON));
+    expect(buildEditPayload(501, { ...fields, distanceMiles: "-1" })).toBe(
+      null,
+    );
+    expect(buildEditPayload(501, { ...fields, distanceMiles: "abc" })).toBe(
+      null,
+    );
   });
 
   test("refuses to build a payload for fields a fresh entry would reject", () => {

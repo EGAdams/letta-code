@@ -1,0 +1,58 @@
+- generic [ref=f28e1]:
+  - complementary [ref=f28e11]:
+    - heading "Dashboard" [level=1] [ref=f28e12]
+    - navigation [ref=f28e13]:
+      - button "Home" [ref=f28e18] [cursor=pointer]
+      - button "ROL Finance" [ref=f28e19] [cursor=pointer]
+      - button "System Status" [ref=f28e20] [cursor=pointer]
+      - button "Agent Management" [ref=f28e21] [cursor=pointer]
+      - button "Project Plans" [ref=f28e22] [cursor=pointer]
+      - button "Agent Blocks" [ref=f28e23] [cursor=pointer]
+  - main [ref=f28e14]:
+    - generic [ref=f28e15]:
+      - heading "Toyota" [level=2] [ref=f28e16]
+      - paragraph [ref=f28e17]: Your receptionist. Press Start Listening when you're ready to talk to her, or just type.
+      - generic [ref=f28e24]:
+        - paragraph [ref=f28e25]:
+          - text: Input options for
+          - strong [ref=f28e26]: Toyota
+          - text: ":"
+        - generic [ref=f28e27]:
+          - generic [ref=f28e28]:
+            - generic [ref=f28e29]: "Model:"
+            - combobox [ref=f28e30]:
+              - option "gpt-5.6-sol" [selected]
+              - option "gpt-5.6-luna"
+              - option "gpt-5.6-terra"
+          - generic [ref=f28e31]:
+            - generic [ref=f28e32]: "Voice:"
+            - combobox [ref=f28e33]:
+              - option "Default (Sonia, UK)"
+              - option "Ana (Female)"
+              - option "Aria (Female)"
+              - option "Ava (Female)" [selected]
+              - option "Ava Multilingual (Female)"
+              - option "Emma (Female)"
+              - option "Emma Multilingual (Female)"
+              - option "Jenny (Female)"
+              - option "Michelle (Female)"
+              - option "Andrew (Male)"
+              - option "Brian (Male)"
+              - option "Christopher (Male)"
+              - option "Eric (Male)"
+              - option "Guy (Male)"
+              - option "Roger (Male)"
+              - option "Steffan (Male)"
+          - textbox "Type or speak here…" [ref=f28e34]
+          - button "Start Listening" [active] [ref=f28e51] [cursor=pointer]
+          - textbox "Tell Toyota how to edit the note…" [ref=f28e36]
+          - button "Send" [ref=f28e37] [cursor=pointer]
+          - button "Save Note" [ref=f28e38] [cursor=pointer]
+          - button "Start Editing" [ref=f28e39] [cursor=pointer]
+          - button "Start" [ref=f28e41] [cursor=pointer]
+          - button "Auto Send" [ref=f28e42] [cursor=pointer]
+          - button "Copy to Clipboard" [ref=f28e43] [cursor=pointer]
+          - generic [ref=f28e44]: Listening…
+          - generic [ref=f28e47]:
+            - generic [ref=f28e48]: "user: Testing latency, please just say hello back."
+            - generic [ref=f28e49]: "Toyota: Hello!"

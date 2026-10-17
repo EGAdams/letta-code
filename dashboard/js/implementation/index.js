@@ -65,6 +65,7 @@ export {
   ConnectionTestController,
   classifyConnectionStatus,
 } from "./connection-controllers.js";
+export { buildConversationContextRow } from "./conversation-context-panel.js";
 export { DashboardStatementReviewActions } from "./dashboard-statement-review-actions.js";
 export {
   AgentCardRenderer,
@@ -94,6 +95,12 @@ export {
   HttpNoteCommandInterpreter,
 } from "./http-note-command-services.js";
 export { IntakeHaltAlert } from "./intake-halt-alert.js";
+export {
+  CompositeLatencySink,
+  ConsoleLatencySink,
+  HttpLatencySink,
+  PerformanceClock,
+} from "./latency-telemetry.js";
 export {
   LETTA_TURN_TIMEOUT_MS,
   LettaAgentAdapter,

@@ -3005,6 +3005,7 @@ LETTA_REMOTE_LOG_CACHE_MAX_LINES = 4000  # trim threshold so /tmp doesn't grow u
 # composition root owns: PORT, the two startup logs, and the Letta log cache.
 from servers.registry import build_server_specs as _build_server_specs  # noqa: E402
 from servers.registry import as_configs as _server_configs  # noqa: E402
+import toyota_service  # noqa: E402
 
 SERVER_SPECS = _build_server_specs(
     port=PORT,
@@ -3013,6 +3014,7 @@ SERVER_SPECS = _build_server_specs(
     letta_remote_log_cache=LETTA_REMOTE_LOG_CACHE,
     executor_startup_log=EXECUTOR_STARTUP_LOG,
     logger_api_startup_log=LOGGER_API_STARTUP_LOG,
+    toyota_service_url=toyota_service.TOYOTA_SERVICE_URL,
 )
 SERVERS = _server_configs(SERVER_SPECS)
 
@@ -3528,6 +3530,12 @@ RESTART_REGISTRY = RestartRegistry([
         key='mazda-tools-mcp',
         handler=lambda: _restart_user_unit('mazda-tools-mcp',
                                            'mazda-tools-mcp.service')),
+    # Slower than the other user units: the sidecar loads a sentence-transformers
+    # model before it answers /health, so the tile sits yellow for ~30s.
+    RestartCommand(
+        key='toyota-receptionist',
+        handler=lambda: _restart_user_unit('toyota-receptionist',
+                                           'toyota-receptionist.service')),
     RestartCommand(
         key='letta',
         handler=lambda: _restart_remote(

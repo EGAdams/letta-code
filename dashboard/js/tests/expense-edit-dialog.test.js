@@ -4,16 +4,18 @@ import { FakeDocument } from "./_fake-dom.js";
 
 function fakeHttp(responses) {
   const calls = [];
-  return {
+  const http = {
     calls,
+    responses,
     async postJSON(url, body) {
       calls.push([url, body]);
-      const entry = responses[url];
+      const entry = http.responses[url];
       if (typeof entry === "function") return entry(body);
       if (entry instanceof Error) throw entry;
       return entry ?? { ok: true };
     },
   };
+  return http;
 }
 
 const RECORD = {
@@ -85,7 +87,7 @@ describe("search", () => {
     const { dialog, http } = setup();
     await dialog._search();
     expect(http.calls).toEqual([]);
-    expect(dialog.statusEl.textContent).toContain("Enter a merchant");
+    expect(dialog.statusEl.textContent).toContain("Enter an expense ID");
   });
 
   test("a valid search posts the criteria and lists the results", async () => {
@@ -155,7 +157,7 @@ describe("picking a row", () => {
     expect(dialog.editEl.style.display).toBe("");
   });
 
-  test("an address with a map_link renders as a clickable link", async () => {
+  test("a record with a map_link enables Show Map and fills Distance/Mileage", async () => {
     const withMapLink = {
       ...RECORD,
       address: "3999 Alpine Ave NW, Comstock Park, MI 49321",
@@ -165,15 +167,17 @@ describe("picking a row", () => {
     const { dialog } = await pickOne({
       "/api/expense-search": { ok: true, records: [withMapLink] },
     });
-    const link = dialog.editMileageEl.children.find((c) => c.tagName === "A");
-    expect(link).toBeTruthy();
-    expect(link.href).toBe("https://maps.example/alpine");
-    expect(link.textContent).toBe(
-      "3999 Alpine Ave NW, Comstock Park, MI 49321",
-    );
+    expect(dialog.showMapButton.disabled).toBe(false);
+    expect(dialog.editDistanceEl.value).toBe("3.4");
+    expect(dialog.editMileageValueEl.value).toBe("6.8 mi");
+
+    const opened = [];
+    dialog._openUrl = (url) => opened.push(url);
+    click(dialog.showMapButton);
+    expect(opened).toEqual(["https://maps.example/alpine"]);
   });
 
-  test("an address without a map_link stays plain text, not a link", async () => {
+  test("a record without a map_link leaves Show Map disabled and the boxes blank", async () => {
     const noMapLink = {
       ...RECORD,
       address: "233 S Wacker Dr, Chicago, IL 60606",
@@ -181,8 +185,9 @@ describe("picking a row", () => {
     const { dialog } = await pickOne({
       "/api/expense-search": { ok: true, records: [noMapLink] },
     });
-    const link = dialog.editMileageEl.children.find((c) => c.tagName === "A");
-    expect(link).toBeUndefined();
+    expect(dialog.showMapButton.disabled).toBe(true);
+    expect(dialog.editDistanceEl.value).toBe("");
+    expect(dialog.editMileageValueEl.value).toBe("");
   });
 
   test("preloads an existing note", async () => {
@@ -218,11 +223,106 @@ describe("picking a row", () => {
   });
 });
 
-describe("saving an edit", () => {
-  async function pickThenSave(editResponse, mutate = () => {}) {
+describe("Prev Record / Next Record navigation", () => {
+  const NEXT_RECORD = {
+    ...RECORD,
+    id: 777,
+    total_amount: 50.0,
+    description: "Costco",
+  };
+
+  async function searchOne() {
     const ctx = setup({
       responses: {
         "/api/expense-search": { ok: true, records: [RECORD] },
+      },
+    });
+    ctx.dialog.merchantInput.value = "a";
+    await ctx.dialog._search();
+    ctx.dialog._select(501);
+    return ctx;
+  }
+
+  test("navigating with nothing picked asks for a row first", async () => {
+    const { dialog } = setup();
+    await dialog._navigate("next");
+    expect(dialog.statusEl.textContent).toContain("Pick a row");
+  });
+
+  test("Next Record asks the server for the row with the next-higher id, not the search results", async () => {
+    const { dialog, http } = await searchOne();
+    http.responses = {
+      "/api/expense-neighbor": { ok: true, record: NEXT_RECORD },
+    };
+    await dialog._navigate("next");
+    expect(http.calls.at(-1)).toEqual([
+      "/api/expense-neighbor",
+      { expense_id: 501, direction: "next" },
+    ]);
+    expect(dialog.selectedId).toBe(777);
+    expect(dialog.editMerchantInput.value).toBe("Costco");
+  });
+
+  test("Prev Record asks the server for the row with the next-lower id", async () => {
+    const { dialog, http } = await searchOne();
+    http.responses = {
+      "/api/expense-neighbor": { ok: true, record: NEXT_RECORD },
+    };
+    await dialog._navigate("prev");
+    expect(http.calls.at(-1)).toEqual([
+      "/api/expense-neighbor",
+      { expense_id: 501, direction: "prev" },
+    ]);
+    expect(dialog.selectedId).toBe(777);
+  });
+
+  test("Next Record at the end of the table reports the boundary without moving", async () => {
+    const { dialog } = await searchOne();
+    dialog.http.responses = {
+      "/api/expense-neighbor": {
+        ok: false,
+        error: "no later expense than id 501",
+      },
+    };
+    await dialog._navigate("next");
+    expect(dialog.selectedId).toBe(501);
+    expect(dialog.statusEl.textContent).toContain("Already at the last record");
+  });
+
+  test("Prev Record at the start of the table reports the boundary without moving", async () => {
+    const { dialog } = await searchOne();
+    dialog.http.responses = {
+      "/api/expense-neighbor": {
+        ok: false,
+        error: "no earlier expense than id 501",
+      },
+    };
+    await dialog._navigate("prev");
+    expect(dialog.selectedId).toBe(501);
+    expect(dialog.statusEl.textContent).toContain(
+      "Already at the first record",
+    );
+  });
+
+  test("the Prev Record / Next Record buttons navigate the same way", async () => {
+    const { dialog, http } = await searchOne();
+    http.responses = {
+      "/api/expense-neighbor": { ok: true, record: NEXT_RECORD },
+    };
+    await click(dialog.nextButton);
+    expect(dialog.selectedId).toBe(777);
+  });
+});
+
+describe("saving an edit", () => {
+  async function pickThenSave(
+    editResponse,
+    mutate = () => {},
+    record = RECORD,
+  ) {
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [record] },
         "/api/expense-edit": editResponse,
       },
     });
@@ -261,9 +361,56 @@ describe("saving an edit", () => {
       transaction_date: "2026-08-15",
       total_amount: 12.34,
       category_name: "Office",
+      distance_miles: null,
+      map_link: "",
     });
     expect(dialog.statusEl.textContent).toContain("updated description");
     expect(saved).toHaveLength(1);
+  });
+
+  test("editing Distance updates Mileage live and posts the new distance", async () => {
+    const withMapLink = {
+      ...RECORD,
+      address: "3999 Alpine Ave NW, Comstock Park, MI 49321",
+      distance_miles: 3.4,
+      map_link: "https://maps.example/alpine",
+    };
+    const { dialog, http } = await pickThenSave(
+      {
+        ok: true,
+        record: { ...withMapLink, distance_miles: 5 },
+        changed_fields: ["distance"],
+        warnings: [],
+      },
+      (d) => {
+        d.editDistanceEl.value = "5";
+        d.editDistanceEl._listeners.input[0]();
+      },
+      withMapLink,
+    );
+    expect(dialog.editMileageValueEl.value).toBe("10.0 mi");
+    const [, body] = http.calls[1];
+    expect(body.distance_miles).toBe(5);
+  });
+
+  test("Map Link loads from the record and posts an edit", async () => {
+    const withMapLink = { ...RECORD, map_link: "https://maps.example/alpine" };
+    const { dialog, http } = await pickThenSave(
+      {
+        ok: true,
+        record: { ...withMapLink, map_link: "https://maps.example/fixed" },
+        changed_fields: ["map_link"],
+        warnings: [],
+      },
+      (d) => {
+        expect(d.editMapLinkInput.value).toBe("https://maps.example/alpine");
+        d.editMapLinkInput.value = "https://maps.example/fixed";
+      },
+      withMapLink,
+    );
+    const [, body] = http.calls[1];
+    expect(body.map_link).toBe("https://maps.example/fixed");
+    expect(dialog.statusEl.textContent).toContain("updated map_link");
   });
 
   test("server warnings are shown alongside the success message", async () => {

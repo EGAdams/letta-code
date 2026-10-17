@@ -31,6 +31,17 @@ const FATAL_ERROR_MESSAGES = {
  *
  * Every browser dependency is injectable so the whole flow is unit-testable.
  */
+// "no-speech" and other transient errors auto-restart forever by design (see
+// FATAL_ERRORS above) — correct when the mic is just between phrases, but if
+// the recognizer *never* produces a single result (dead mic route, no network
+// path to the browser's cloud recognizer, etc.) that same retry loop leaves
+// the caller stuck on "Stop Listening" with no feedback, indefinitely. This
+// caps how long we'll wait for a first/next result before treating the
+// silence itself as a fatal condition.
+const STALL_TIMEOUT_MS = 20_000;
+const STALL_MESSAGE =
+  "Not hearing anything — check the mic input, or try push-to-talk instead.";
+
 export class BrowserSpeechRecognitionListener extends ContinuousListener {
   constructor({
     onStateChange,
@@ -40,6 +51,9 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     SpeechRecognition: Recognition = globalThis.SpeechRecognition ||
       globalThis.webkitSpeechRecognition,
     lang = "en-US",
+    setTimeout: setTimeoutFn = globalThis.setTimeout.bind(globalThis),
+    clearTimeout: clearTimeoutFn = globalThis.clearTimeout.bind(globalThis),
+    stallTimeoutMs = STALL_TIMEOUT_MS,
   } = {}) {
     super({ onStateChange, onResult, onError });
     this._window = win;
@@ -47,6 +61,24 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     this._lang = lang;
     this._recognition = null;
     this._stopping = false;
+    this._setTimeout = setTimeoutFn;
+    this._clearTimeout = clearTimeoutFn;
+    this._stallTimeoutMs = stallTimeoutMs;
+    this._stallTimer = null;
+  }
+
+  _armStallTimer() {
+    this._clearTimeout(this._stallTimer);
+    this._stallTimer = this._setTimeout(() => {
+      this._stopping = true;
+      this._recognition?.stop();
+      this._fail(STALL_MESSAGE);
+    }, this._stallTimeoutMs);
+  }
+
+  _disarmStallTimer() {
+    this._clearTimeout(this._stallTimer);
+    this._stallTimer = null;
   }
 
   get supported() {
@@ -63,6 +95,7 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     this._recognition.lang = this._lang;
 
     this._recognition.onresult = (event) => {
+      this._armStallTimer();
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result?.[0]?.transcript ?? "";
@@ -86,6 +119,7 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     this._recognition.onerror = (event) => {
       if (!FATAL_ERRORS.has(event.error)) return; // transient — onend will restart
       this._stopping = true;
+      this._disarmStallTimer();
       this._fail(
         FATAL_ERROR_MESSAGES[event.error] ??
           `Speech recognition error: ${event.error}`,
@@ -97,12 +131,14 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     } catch {
       return false;
     }
+    this._armStallTimer();
     return true;
   }
 
   /** @override Stop the recognition session for real (no auto-restart). */
   closeListening() {
     this._stopping = true;
+    this._disarmStallTimer();
     this._recognition?.stop();
     this._recognition = null;
   }

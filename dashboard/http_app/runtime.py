@@ -14,6 +14,23 @@ class ReusableHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    # A handler that never finishes a blocking read/write leaves its thread
+    # and socket stuck forever -- observed in production as 381 live handler
+    # threads and 269+ sockets stuck in CLOSE-WAIT after a few hours, which
+    # eventually fails every new request with "Too many open files" once the
+    # process hits its fd ulimit. Bounding every connection's blocking I/O
+    # guarantees finish_request() always returns -- raising socket.timeout is
+    # fine, BaseServer's `finally: self.shutdown_request(request)` still runs
+    # and reclaims the fd -- so a wedged request just times out instead of
+    # leaking. /api/terminal is the one legitimately long-lived connection; it
+    # opts out by clearing its own socket's timeout right after the WebSocket
+    # upgrade (see terminal_ws.py).
+    request_socket_timeout = 120
+
+    def finish_request(self, request, client_address):
+        request.settimeout(self.request_socket_timeout)
+        super().finish_request(request, client_address)
+
 
 def start_background_tasks(tasks):
     """Start each declared daemon thread and print its banner, in order."""

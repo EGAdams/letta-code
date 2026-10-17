@@ -1,7 +1,7 @@
 /**
  * Standalone mount for the "Edit Expense" panel (Recent Report page).
  *
- * The panel itself is ExpenseEditDialog, unchanged. This file exists only to
+ * The panel itself is ExpenseEditDialog. This file exists only to
  * give it a home that does not depend on ManualEntryForm being on the page.
  *
  * Why it needed one: the Save-by-hand form is rendered only while a scan is
@@ -13,8 +13,8 @@
  * putting Save All back on a document that has already been entered.
  *
  * ExpenseEditDialog needs a category list, which the entry form used to hand
- * it. Fetched here from the same endpoint, with the same fallback: dropdowns
- * are a convenience, and a failed fetch must not block an edit.
+ * it. Fetched here from the full expense taxonomy, rather than the condensed
+ * reporting palette. Exact IDs keep leaf categories intact while editing.
  */
 
 import { readCategoriesResponse } from "../abstract/manual-entry.interface.js";
@@ -49,6 +49,7 @@ export class ExpenseEditPanel {
     this._EditDialog = EditDialog;
     this.expanded = expanded;
     this.categoryNames = [];
+    this.categoryNamesById = new Map();
   }
 
   /** Build the launcher, mount the dialog, then load the taxonomy. */
@@ -76,6 +77,13 @@ export class ExpenseEditPanel {
       doc: this.doc,
       // A getter, not a snapshot: the fetch below resolves after render().
       categoryNames: () => this.categoryNames,
+      categoryNameForId: (id) =>
+        this.categoryNamesById.get(id) ||
+        (id ? `Current category unavailable [${id}]` : ""),
+      onSelected: (expenseId) => {
+        const heading = this.root.querySelector("h2");
+        if (heading) heading.textContent = `Editing expense #${expenseId}`;
+      },
     });
     this.dialog.render();
     if (this.toggleButton) {
@@ -93,59 +101,51 @@ export class ExpenseEditPanel {
     return launcher;
   }
 
-  /**
-   * Open one expense straight away when the URL names it, e.g.
-   * `edit_expense.html?expense_id=2431&date=2025-07-14`.
-   *
-   * The 2025 daily spreadsheet links every description cell here, so a click
-   * in Excel lands on that row with its fields populated and editable.
-   *
-   * `date` is required because /api/expense-search takes filing criteria, not
-   * an id -- searchByDate loads that day, then the id picks the row out of it.
-   * Callers that have the id have the date too, so this stays a link rather
-   * than a new endpoint.
-   */
+  /** Old spreadsheet/report dates remain accepted, but the ID owns the lookup. */
   async _openRequestedExpense() {
-    const params = this._requestedParams();
-    if (!params) return;
-    const { expenseId, date } = params;
+    const expenseId = this._requestedId();
+    if (expenseId === null) return;
+    const heading = this.root.querySelector("h2");
+    if (heading) heading.textContent = `Opening expense #${expenseId}…`;
     try {
-      const records = await this.dialog.searchByDate(date);
-      if (!records.some((record) => record.id === expenseId)) {
-        this.dialog.setStatusMessage(
-          `Expense #${expenseId} is not among the ${records.length} stored on ${date}. ` +
-            "It may have been deleted, or the spreadsheet may be out of date.",
-        );
-        return;
-      }
-      this.dialog.selectStoredExpense(expenseId);
+      const found = await this.dialog.searchById(expenseId);
+      if (heading)
+        heading.textContent = found
+          ? `Editing expense #${expenseId}`
+          : `Expense #${expenseId} not found or could not be loaded. Use Search to try again.`;
     } catch {
-      // A failed deep link must still leave a usable panel to search by hand.
+      if (heading)
+        heading.textContent = `Could not load expense #${expenseId}. Use Search to try again.`;
       this.dialog.setStatusMessage(`Could not load expense #${expenseId}.`);
     }
   }
 
-  /** @returns {{expenseId: number, date: string} | null} */
-  _requestedParams() {
-    const search = this.doc?.defaultView?.location?.search;
-    if (!search) return null;
-    const query = new URLSearchParams(search);
-    const expenseId = Number.parseInt(query.get("expense_id") ?? "", 10);
-    const date = (query.get("date") ?? "").trim();
-    if (!Number.isInteger(expenseId) || expenseId <= 0) return null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-    return { expenseId, date };
+  _requestedId() {
+    const query = new URLSearchParams(
+      this.doc?.defaultView?.location?.search || "",
+    );
+    const value = query.get("expense_id") || "";
+    const expenseId = Number(value);
+    return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(expenseId)
+      ? expenseId
+      : null;
   }
 
   async _loadCategoryNames() {
     try {
-      this.categoryNames = readCategoriesResponse(
-        await this.http.getJSON("/api/rol-finance-categories"),
+      const response = await this.http.getJSON("/api/expense-categories");
+      this.categoryNames = readCategoriesResponse(response);
+      this.categoryNamesById = new Map(
+        (response.categories || [])
+          .filter(
+            (row) =>
+              Number.isSafeInteger(row.id) && typeof row.name === "string",
+          )
+          .map((row) => [row.id, row.name]),
       );
     } catch {
-      // Same call and same fallback as the entry form's _loadDropdownOptions:
-      // a failed fetch just leaves the category dropdown empty, which is a
-      // worse edit, not a blocked one.
+      // The current ID gets an unavailable option in the dialog, so an
+      // outage never silently turns a precise category into unresolved.
       this.categoryNames = [];
     }
   }

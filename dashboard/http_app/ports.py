@@ -199,6 +199,18 @@ class ExpensePort(Protocol):
     def submit_manual_expense_entry(self, data: object) -> dict:
         ...
 
+    def neighbor_stored_expense(self, data: object) -> dict:
+        ...
+
+    def edit_stored_expense(self, data: object) -> dict:
+        ...
+
+    def categories(self) -> dict:
+        ...
+
+    def create_category_vendor(self, data: object) -> dict:
+        ...
+
 
 class IntakePort(Protocol):
     """9 names. The recent-intake record, the halt file, scanner intake

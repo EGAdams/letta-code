@@ -320,7 +320,9 @@ function inputOptionsSetup({
       return modelInfo ?? { ok: false, options: [] };
     },
     postJSON: async (url, body) => {
-      posts.push({ url, body });
+      // /api/latency-log is the observer's fire-and-forget telemetry post on
+      // every turn — noise for assertions about the conversation endpoint.
+      if (url !== "/api/latency-log") posts.push({ url, body });
       if (url === "/api/agent-model") return { ok: true, model: body.model };
       if (url === "/api/agent-voice") return { ok: true, voice: body.voice };
       if (url === "/api/letta-code-message") {

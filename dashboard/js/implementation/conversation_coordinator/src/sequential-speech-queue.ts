@@ -21,6 +21,17 @@ interface PlaybackSessionPort {
   completeTurn?(generationId: unknown): boolean;
 }
 
+export type SpeechSegmentTelemetryEvent =
+  | "tts_requested"
+  | "audio_ready"
+  | "audio_playing";
+
+/** Optional latency-instrumentation hook; never gates playback. */
+export type SpeechSegmentTelemetryPort = (
+  event: SpeechSegmentTelemetryEvent,
+  segment: SpeechSegment,
+) => void;
+
 interface QueueState {
   chain: Promise<void>;
   cancelled: boolean;
@@ -35,17 +46,21 @@ export class SequentialSpeechQueue implements SpeechQueuePort {
   private readonly states = new Map<GenerationId, QueueState>();
   private readonly speech: SpeechSynthesizerPort;
   private readonly session: PlaybackSessionPort | null;
+  private readonly telemetry: SpeechSegmentTelemetryPort | null;
 
   constructor({
     speech,
     session = null,
+    telemetry = null,
   }: {
     speech: SpeechSynthesizerPort;
     session?: PlaybackSessionPort | null;
+    telemetry?: SpeechSegmentTelemetryPort | null;
   }) {
     if (!speech) throw new Error("SequentialSpeechQueue requires speech");
     this.speech = speech;
     this.session = session;
+    this.telemetry = telemetry;
   }
 
   enqueue(segment: SpeechSegment, agentName: string): void {
@@ -66,6 +81,7 @@ export class SequentialSpeechQueue implements SpeechQueuePort {
     state.pendingCount += 1;
     state.chain = state.chain.then(async () => {
       if (state?.cancelled) return;
+      this.emitTelemetry("tts_requested", segment);
       const playback = this.speech.speak(segment.text, agentName);
       if (!playback) return;
       state.current = playback;
@@ -87,6 +103,10 @@ export class SequentialSpeechQueue implements SpeechQueuePort {
         playback.cancel?.();
         return;
       }
+      // This synthesizer resolves `pending` once audio is decoded and already
+      // playing, so ready and playing are the same observable instant here.
+      this.emitTelemetry("audio_ready", segment);
+      this.emitTelemetry("audio_playing", segment);
       await (playback.finished ?? Promise.resolve());
       state.current = null;
     });
@@ -101,6 +121,17 @@ export class SequentialSpeechQueue implements SpeechQueuePort {
       await state.chain;
     } finally {
       this.states.delete(generationId);
+    }
+  }
+
+  private emitTelemetry(
+    event: SpeechSegmentTelemetryEvent,
+    segment: SpeechSegment,
+  ): void {
+    try {
+      this.telemetry?.(event, segment);
+    } catch {
+      // Telemetry is observational and must never break playback.
     }
   }
 

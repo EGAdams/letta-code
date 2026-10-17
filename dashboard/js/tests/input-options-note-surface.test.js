@@ -33,7 +33,17 @@ function render({ surfaceFactory } = {}) {
     recorderFactory: () => ({ isRecording: false, start: async () => true }),
     ...(surfaceFactory ? { surfaceFactory } : {}),
   }).render("box", "toyota-id");
-  return { container, api, posts };
+  return {
+    container,
+    api,
+    posts,
+    // Excludes /api/latency-log, which the observer's HttpLatencySink also
+    // posts to on every turn — irrelevant to what these tests assert. A
+    // getter (not a snapshot) since `posts` fills in after render().
+    get sendPosts() {
+      return posts.filter((p) => p.url !== "/api/latency-log");
+    },
+  };
 }
 
 describe("InputOptionsRenderer text surface", () => {
@@ -48,7 +58,7 @@ describe("InputOptionsRenderer text surface", () => {
     ctx.api.setText("hello there");
     await ctx.api.send();
     expect(ctx.api.note.getText()).toBe("");
-    expect(ctx.posts.at(-1).body.text).toBe("hello there");
+    expect(ctx.sendPosts.at(-1).body.text).toBe("hello there");
   });
 
   test("an injected read-only note surface is used as-is", () => {
@@ -64,7 +74,7 @@ describe("InputOptionsRenderer text surface", () => {
     expect(ctx.api.note.getText()).toBe(
       "Today Roy and I worked on the scoreboard",
     );
-    expect(ctx.posts.at(-1).body.text).toBe(
+    expect(ctx.sendPosts.at(-1).body.text).toBe(
       "Today Roy and I worked on the scoreboard",
     );
   });

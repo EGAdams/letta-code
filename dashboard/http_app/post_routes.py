@@ -18,7 +18,9 @@ from urllib.parse import urlparse
 import codex_sync_status
 import model_stats_mute
 import statement_review
+import toyota_service
 from agent_thoughts import message_text as _msg_text
+from agents import conversation_management
 from chatgpt_provider_status import ChatGptProviderSwapRequest
 from codex_sync_status import CodexSyncRequest, CodexSyncToggleRequest
 from finance import manual_entry
@@ -30,7 +32,8 @@ from letta_code import streaming as conversation_streaming
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from pydantic import ValidationError
-from voice import config, note_factory, note_repository, pipeline, receptionist
+from voice import (config, latency_log, note_factory, note_repository,
+                   pipeline, receptionist)
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
@@ -73,6 +76,16 @@ class PostRoutesMixin:
                 return self.json_response({'ok': True})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/latency-log':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            if not isinstance(data, dict):
+                return self.error_response('Invalid JSON', 400)
+            latency_log.append(data)
+            return self.json_response({'ok': True})
 
         if path == '/api/codex-sync-now':
             try:
@@ -302,12 +315,19 @@ class PostRoutesMixin:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(srv.search_stored_expenses(data))
 
+        if path == '/api/expense-category-vendor':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(current_ports().expense.create_category_vendor(data))
+
         if path == '/api/expense-edit':
             try:
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            return self.json_response(srv.edit_stored_expense(data))
+            return self.json_response(current_ports().expense.edit_stored_expense(data))
 
         # The other two things a Verified Transactions row can now ask for.
         # Both are id-only asks: what to remove, and what to tax. The
@@ -319,6 +339,17 @@ class PostRoutesMixin:
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(srv.delete_stored_expense(data))
+
+        # The Edit Expense dialog's Prev/Next Record buttons -- the adjacent
+        # row by id across the whole expenses table, not the current search
+        # results.
+        if path == '/api/expense-neighbor':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(
+                current_ports().expense.neighbor_stored_expense(data))
 
         if path == '/api/expense-add-tax':
             try:
@@ -539,6 +570,21 @@ class PostRoutesMixin:
             except Exception as e:
                 return self.json_response({'ok': False, 'error': str(e)})
 
+        if path == '/api/agent-compact':
+            try:
+                data = json.loads(body)
+                return self.json_response(conversation_management.compact(data.get('agent', '')))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/agent-reset-messages':
+            try:
+                data = json.loads(body)
+                return self.json_response(
+                    conversation_management.reset_messages(data.get('agent', '')))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+
         if path == '/api/test':
             try:
                 data = json.loads(body)
@@ -632,6 +678,15 @@ class PostRoutesMixin:
                 return self.error_response(str(e), 400)
             except Exception as e:
                 return self.error_response(str(e), 502)
+        if path == '/api/receptionist-turn':
+            # Toyota's other brain: receptionist_team's LanceDB-memory agent,
+            # which can delegate to a finance_team role. Same NDJSON envelope
+            # as /api/letta-code-stream, so the browser uses one adapter.
+            try:
+                request = toyota_service.ToyotaTurnRequest.model_validate_json(body)
+            except ValidationError as e:
+                return self.error_response(f'invalid request: {e}', 400)
+            return self.ndjson_response(toyota_service.stream_toyota_turn(request))
         if path == '/api/headless-prompt':
             # Headless mode: run letta -p with JSON output (no terminal UI noise)
             # Used by "Ask Mazda" to get clean, readable output without ANSI codes

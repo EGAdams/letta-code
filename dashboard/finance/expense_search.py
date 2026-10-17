@@ -21,6 +21,9 @@ def where_clauses(criteria: ExpenseSearchCriteria,
     """Criteria -> parameterized SQL fragments and their bind values."""
     clauses: list[str] = []
     params: list[Any] = []
+    if criteria.expense_id is not None:
+        clauses.append('id = %s')
+        params.append(criteria.expense_id)
     if criteria.merchant:
         like = f'%{escape_like(criteria.merchant)}%'
         escape = f" ESCAPE '{LIKE_ESCAPE}'"
@@ -49,6 +52,7 @@ def search_criteria_from_request(data: dict) -> ExpenseSearchCriteria:
     amount = as_optional_float(data.get('amount'), 'amount')
     limit = as_optional_int(data.get('limit') or None, 'limit')
     fields: dict[str, Any] = {
+        'expense_id': as_optional_int(data.get('expense_id') or None, 'expense_id'),
         'merchant': str(data.get('merchant') or ''),
         'date_from': _optional_text(data.get('date_from')),
         'date_to': _optional_text(data.get('date_to')),

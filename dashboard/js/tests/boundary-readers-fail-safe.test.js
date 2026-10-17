@@ -22,6 +22,7 @@ import { describe, expect, test } from "bun:test";
 import { readArchivePathResponse } from "../abstract/archive-verify-command.js";
 import {
   readEditResponse,
+  readNeighborResponse,
   readSearchResponse,
 } from "../abstract/expense-edit.interface.js";
 import {
@@ -165,6 +166,14 @@ const READERS = [
     true,
   ],
   ["readEditResponse.ok", (v) => readEditResponse(v).ok, true],
+  ["readNeighborResponse.ok", (v) => readNeighborResponse(v).ok, true],
+  [
+    // Prev Record/Next Record load whatever `record` carries straight into
+    // the edit fields. Junk must never produce one to load.
+    "readNeighborResponse invents a record",
+    (v) => readNeighborResponse(v).record !== null,
+    true,
+  ],
   [
     // These fill a <select>. A junk response must leave it empty rather than
     // offering a vendor key that does not exist.

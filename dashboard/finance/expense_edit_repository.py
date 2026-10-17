@@ -80,6 +80,13 @@ class IExpenseRecordRepository(ABC):
         """One stored row. Raises ExpenseNotFound for an unknown id."""
 
     @abstractmethod
+    def neighbor(self, expense_id: int, step: int) -> ExpenseRecord:
+        """The adjacent row across the *whole* `expenses` table, ordered by
+        id -- not the current search results. `step` is -1 (previous, next
+        lower id) or +1 (next, next higher id). Raises ExpenseNotFound when
+        `expense_id` itself is unknown, or when there is no row on that side."""
+
+    @abstractmethod
     def delete(self, expense_id: int) -> ExpenseDeletion:
         """Remove one stored row (and its line items, where the deployment has
         them). Returns what was removed. Raises ExpenseNotFound."""
@@ -293,6 +300,12 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                         if value and schema.has(column):
                             assignments.append(f'{column} = %s')
                             params.append(value)
+                    if 'distance' in changed and schema.has('distance'):
+                        assignments.append('distance = %s')
+                        params.append(edit.distance_miles)
+                    if 'map_link' in changed and schema.has('map_link'):
+                        assignments.append('map_link = %s')
+                        params.append(edit.map_link)
                     params.append(edit.expense_id)
                     try:
                         cur.execute(
@@ -317,8 +330,8 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     document_url=references.document_url or before.document_url,
                     source_file=references.source_file or before.source_file,
                     address=before.address,
-                    distance_miles=before.distance_miles,
-                    map_link=before.map_link,
+                    distance_miles=edit.distance_miles,
+                    map_link=edit.map_link,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
                     notes=before.notes,
@@ -334,6 +347,30 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             with cnx.cursor() as cur:
                 record, _, _ = self._read_one(cur, expense_id)
         return record
+
+    def neighbor(self, expense_id: int, step: int) -> ExpenseRecord:
+        with self._connect() as cnx:
+            with cnx.cursor() as cur:
+                # Confirms expense_id itself still exists before looking
+                # sideways, so a stale/deleted id reports plainly rather than
+                # silently landing on some unrelated row.
+                self._read_one(cur, expense_id)
+                select_sql, _ = self._select_clause(cur)
+                if step < 0:
+                    comparison, order = '<', 'DESC'
+                else:
+                    comparison, order = '>', 'ASC'
+                cur.execute(
+                    f'SELECT {select_sql} FROM expenses WHERE id {comparison} %s '
+                    f'ORDER BY id {order} LIMIT 1',
+                    (expense_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise ExpenseNotFound(
+                f'no {"earlier" if step < 0 else "later"} expense than id '
+                f'{expense_id}')
+        return self._to_record(row)
 
     def _line_item_ids(self, cur: Any, expense_id: int) -> tuple[int, ...]:
         """The itemization rows filed under this expense, if this deployment

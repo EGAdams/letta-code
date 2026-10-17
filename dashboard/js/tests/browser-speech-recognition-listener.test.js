@@ -135,4 +135,41 @@ describe("BrowserSpeechRecognitionListener (concrete ContinuousListener)", () =>
     expect(l.state).toBe(ListenerState.LISTENING);
     expect(recognition.started).toBe(2); // onend still restarted it
   });
+
+  test("a session that never produces a single result eventually fails instead of listening forever", async () => {
+    const errors = [];
+    const timers = [];
+    const l = makeListener({
+      onError: (m) => errors.push(m),
+      stallTimeoutMs: 20_000,
+      setTimeout: (fn) => {
+        timers.push(fn);
+        return timers.length;
+      },
+      clearTimeout: () => {},
+    });
+    await l.start();
+    expect(timers.length).toBe(1);
+    timers[0](); // simulate the stall timeout firing with zero onresult calls
+    expect(errors).toEqual([
+      "Not hearing anything — check the mic input, or try push-to-talk instead.",
+    ]);
+    expect(l.state).toBe(ListenerState.IDLE);
+    expect(l._recognition.stopped).toBe(1); // stops the dead session for real
+  });
+
+  test("any result (even interim) resets the stall watchdog", async () => {
+    const errors = [];
+    const cleared = [];
+    let nextId = 0;
+    const l = makeListener({
+      onError: (m) => errors.push(m),
+      setTimeout: () => ++nextId,
+      clearTimeout: (id) => cleared.push(id),
+    });
+    await l.start();
+    l._recognition.fire([{ text: "hey", isFinal: false }]);
+    expect(cleared.at(-1)).toBe(1); // start()'s timer was cleared before rearming
+    expect(errors).toEqual([]);
+  });
 });

@@ -77,7 +77,19 @@ def build_cleanup() -> CleanupStrategy:
     from .letta_client import LettaClient
 
     client = LettaClient(config.LETTA_BASE_URL)
-    agent_id = config.CLEANUP_AGENT_ID or client.resolve_agent_id(config.CLEANUP_AGENT_NAME)
+    if config.CLEANUP_AGENT_ID:
+        agent_id = config.CLEANUP_AGENT_ID
+    else:
+        try:
+            agent_id = client.resolve_agent_id(config.CLEANUP_AGENT_NAME)
+        except Exception:
+            # Letta unreachable (e.g. its host is offline on the tailnet) — a
+            # cleanup hiccup must never block voice input, so drop straight to
+            # PassThroughCleanup instead of letting the singleton pipeline
+            # builder in pipeline.py fail to construct on every request.
+            return PassThroughCleanup()
+    if agent_id is None:
+        return PassThroughCleanup()
     return LettaAgentCleanup(client, agent_id, known_names=config.KNOWN_AGENT_NAMES)
 
 

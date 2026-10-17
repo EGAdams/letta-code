@@ -17,6 +17,8 @@ import codex_sync_status
 import document_annotation
 import model_stats_mute
 import statement_review
+import toyota_service
+from agents import conversation_management
 from finance import add_expense_page
 from health import (
     claude_sdk_activity,
@@ -108,6 +110,10 @@ class GetRoutesMixin:
             receptionist = current_ports().agents.receptionist()
             if receptionist is None:
                 return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
+            # Which brain answers Toyota's box: receptionist_team's sidecar
+            # (LanceDB memory + finance_team delegation) when it's up, else
+            # the Letta streaming CLI. See toyota_service.preferred_backend.
+            conversation = toyota_service.preferred_backend()
             return self.json_response({
                 'ok': True, 'agent_id': receptionist['agent_id'],
                 'name': receptionist['name'],
@@ -115,10 +121,16 @@ class GetRoutesMixin:
                     'pipecat'
                     if receptionist['agent_id'] == voice_config.PIPECAT_PILOT_AGENT_ID
                     else 'whisper'),
+                'conversation_backend': conversation['backend'],
+                'conversation_backend_forced': conversation['forced'],
+                'conversation_service': conversation['service'],
             })
 
         if path == '/api/agent-voice':
             return self.json_response(srv.agent_voice_payload(agent_id))
+
+        if path == '/api/agent-context':
+            return self.json_response(conversation_management.context_payload(agent_id))
 
         if path == '/api/agent-activity':
             return self.json_response(srv.agent_activity_status())
@@ -128,6 +140,9 @@ class GetRoutesMixin:
 
         if path == '/api/vendor-keys':
             return self.json_response(srv.list_vendor_keys())
+
+        if path == '/api/expense-categories':
+            return self.json_response(current_ports().expense.categories())
 
         if path == '/api/rol-finance-categories':
             # Full {name, cls, bg, fg, excluded} rows, not just names -- the

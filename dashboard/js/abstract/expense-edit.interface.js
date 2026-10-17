@@ -14,6 +14,7 @@
  * ExpenseEdit inherits ExpenseFieldRules on the Python side.
  *
  * @typedef {Object} ExpenseSearchCriteria
+ * @property {string} expenseId    raw text from the input, not yet parsed; "" for none
  * @property {string} merchant     free text matched against description/vendor key
  * @property {string} dateFrom     ISO yyyy-mm-dd, or ""
  * @property {string} dateTo       ISO yyyy-mm-dd, or ""
@@ -34,6 +35,7 @@
  * @property {string} mapLink Google Maps directions URL for `address`, from
  *   the map-distance-tool; "" until Mazda's intake pipeline populates it --
  *   never derived or looked up client-side
+ * @property {?number} categoryId exact stored category, separate from its report label
  * @property {string} categoryName
  * @property {string} notes free-text note from `expenses.notes`; "" when none
  *   was ever saved
@@ -82,7 +84,7 @@ function asStringArray(value) {
 
 /** A blank criteria object — every field present, so callers never see undefined. */
 export function blankSearchCriteria() {
-  return { merchant: "", dateFrom: "", dateTo: "", amount: "" };
+  return { expenseId: "", merchant: "", dateFrom: "", dateTo: "", amount: "" };
 }
 
 /**
@@ -94,11 +96,18 @@ export function blankSearchCriteria() {
  */
 export function validateSearchCriteria(criteria) {
   const errors = {};
+  const expenseIdText = asString(criteria && criteria.expenseId).trim();
   const merchant = asString(criteria && criteria.merchant).trim();
   const dateFrom = asString(criteria && criteria.dateFrom).trim();
   const dateTo = asString(criteria && criteria.dateTo).trim();
   const amountText = asString(criteria && criteria.amount).trim();
 
+  if (expenseIdText) {
+    const expenseId = Number(expenseIdText);
+    if (!Number.isInteger(expenseId) || expenseId <= 0) {
+      errors.expenseId = "Expense ID must be a positive whole number.";
+    }
+  }
   if (dateFrom && !ISO_DATE_RE.test(dateFrom)) {
     errors.dateFrom = "From date must be in yyyy-mm-dd form.";
   }
@@ -120,8 +129,9 @@ export function validateSearchCriteria(criteria) {
       errors.amount = "Amount must be a positive number.";
     }
   }
-  if (!merchant && !dateFrom && !dateTo && !amountText) {
-    errors.merchant = "Enter a merchant, a date range, or an amount to search.";
+  if (!expenseIdText && !merchant && !dateFrom && !dateTo && !amountText) {
+    errors.merchant =
+      "Enter an expense ID, a merchant, a date range, or an amount to search.";
   }
   return { valid: Object.keys(errors).length === 0, errors };
 }
@@ -135,8 +145,10 @@ export function validateSearchCriteria(criteria) {
  * @param {number} [limit]
  */
 export function buildSearchPayload(criteria, limit) {
+  const expenseIdText = asString(criteria.expenseId).trim();
   const amountText = asString(criteria.amount).trim();
   return {
+    expense_id: expenseIdText ? Number(expenseIdText) : null,
     merchant: asString(criteria.merchant).trim(),
     date_from: asString(criteria.dateFrom).trim(),
     date_to: asString(criteria.dateTo).trim(),
@@ -168,9 +180,31 @@ export function readExpenseRecord(raw) {
     address: asString(raw.address),
     distanceMiles: asFiniteNumber(raw.distance_miles),
     mapLink: asString(raw.map_link),
+    categoryId: Number.isSafeInteger(raw.category_id) ? raw.category_id : null,
     categoryName: asString(raw.category_name),
     notes: asString(raw.notes),
   };
+}
+
+/**
+ * The address to show, when `expenses.address` itself was never populated
+ * but a `map_link` was: `AdwDistanceCalculator` writes a Google Maps
+ * directions URL and a distance without ever backfilling the `address`
+ * column (expense 710 is one of many rows like this -- map_link and
+ * distance both set, address NULL), so reading only `record.address` showed
+ * "No address on record" for a row that plainly had one. The destination
+ * query parameter is that same address, already resolved by whatever wrote
+ * the link.
+ * @param {string} mapLink
+ * @returns {string}
+ */
+function addressFromMapLink(mapLink) {
+  if (!mapLink) return "";
+  try {
+    return new URL(mapLink).searchParams.get("destination") || "";
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -178,12 +212,13 @@ export function readExpenseRecord(raw) {
  * @param {ExpenseRecord} record
  */
 export function formatMileageDetail(record) {
-  if (!record.address) return "";
+  const address = record.address || addressFromMapLink(record.mapLink);
+  if (!address) return "";
   const distance =
     record.distanceMiles === null
       ? ""
       : ` · ${record.distanceMiles.toFixed(1)} mi from home`;
-  return `${record.address}${distance}`;
+  return `${address}${distance}`;
 }
 
 /**
@@ -191,7 +226,8 @@ export function formatMileageDetail(record) {
  * text, the " · N.N mi from home" suffix (or ""), and the Google Maps URL to
  * link the address to -- null when there's no `map_link` yet, in which case
  * the caller renders plain text instead of an anchor. Returns null entirely
- * when there's no address at all.
+ * when there's no address at all, whether from `record.address` or from
+ * `record.mapLink`'s destination.
  *
  * @typedef {Object} MileageDisplayParts
  * @property {string} address
@@ -202,13 +238,14 @@ export function formatMileageDetail(record) {
  * @returns {?MileageDisplayParts}
  */
 export function mileageDisplayParts(record) {
-  if (!record.address) return null;
+  const address = record.address || addressFromMapLink(record.mapLink);
+  if (!address) return null;
   const distanceSuffix =
     record.distanceMiles === null
       ? ""
       : ` · ${record.distanceMiles.toFixed(1)} mi from home`;
   return {
-    address: record.address,
+    address,
     distanceSuffix,
     mapLink: record.mapLink || null,
   };
@@ -301,6 +338,39 @@ export function readSearchResponse(json) {
 }
 
 /**
+ * expense id + direction -> the JSON POST /api/expense-neighbor expects.
+ * @param {number} expenseId
+ * @param {"prev"|"next"} direction
+ */
+export function buildNeighborPayload(expenseId, direction) {
+  return { expense_id: expenseId, direction };
+}
+
+/**
+ * Boundary check for POST /api/expense-neighbor's response -- the adjacent
+ * row across the whole table, not the current search results.
+ * @param {unknown} json
+ * @returns {{ok: boolean, record: ?ExpenseRecord, error: ?string}}
+ */
+export function readNeighborResponse(json) {
+  if (!isPlainObject(json)) {
+    return { ok: false, record: null, error: "malformed response" };
+  }
+  if (json.ok !== true) {
+    return {
+      ok: false,
+      record: null,
+      error: asString(json.error) || "no such record",
+    };
+  }
+  const record = readExpenseRecord(json.record);
+  if (!record) {
+    return { ok: false, record: null, error: "malformed response" };
+  }
+  return { ok: true, record, error: null };
+}
+
+/**
  * A stored record -> the editable field shape the manual-entry validator and
  * the shared form inputs already speak. This is the seam that lets one set of
  * field rules cover both an insert and an edit.
@@ -320,18 +390,34 @@ export function recordToFields(record) {
  * Fields + the row being corrected -> the JSON POST /api/expense-edit expects.
  * Returns null when the fields are not valid, so a caller cannot skip the
  * check on the way to building a request.
+ *
+ * `fields.distanceMiles` is raw text from the Distance box, not a
+ * ManualEntryFields property -- the edit dialog is the only caller that sets
+ * it. Blank means "unchanged/unknown" and sends null; a negative or
+ * unparsable value refuses the whole payload, same as a bad amount does.
+ * `fields.mapLink` is raw text from the Map Link box, same caller-only
+ * reasoning -- sent through as-is (trimmed), with no format check, since a
+ * blank value is simply "no map link" rather than an error.
  * @param {number} expenseId
- * @param {import("./manual-entry.interface.js").ManualEntryFields} fields
+ * @param {import("./manual-entry.interface.js").ManualEntryFields & {distanceMiles?: string, mapLink?: string}} fields
  */
 export function buildEditPayload(expenseId, fields) {
   if (!Number.isInteger(expenseId) || expenseId <= 0) return null;
   if (!validateManualEntry(fields).valid) return null;
+  const distanceText = asString(fields.distanceMiles).trim();
+  let distanceMiles = null;
+  if (distanceText !== "") {
+    distanceMiles = Number(distanceText);
+    if (!Number.isFinite(distanceMiles) || distanceMiles < 0) return null;
+  }
   return {
     expense_id: expenseId,
     merchant_name: fields.merchantName.trim(),
     transaction_date: fields.transactionDate,
     total_amount: Number(fields.totalAmount),
     category_name: (fields.categoryName || "").trim(),
+    distance_miles: distanceMiles,
+    map_link: asString(fields.mapLink).trim(),
     ...(fields.knownVendorKey === "__new__"
       ? {
           vendor_key: (fields.newVendorKey || "").trim(),

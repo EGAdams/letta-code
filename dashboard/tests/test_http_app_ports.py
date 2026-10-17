@@ -188,8 +188,8 @@ def _srv_references():
 #: a second time (source == 'agent-assignments') to roll the Agent
 #: Assignments rows' token_status into that tab's own status, reusing an
 #: existing name rather than adding a new one.
-SRV_SITE_CEILING = 135
-SRV_NAME_CEILING = 110
+SRV_SITE_CEILING = 134
+SRV_NAME_CEILING = 109
 
 
 class TestTheSrvCountOnlyEverFalls:

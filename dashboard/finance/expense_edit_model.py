@@ -46,11 +46,19 @@ class ExpenseSearchCriteria(StrictModel):
     empty search is a mistake, not a request for everything.
     """
 
+    expense_id: Optional[int] = None
     merchant: str = ''
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     amount: Optional[float] = None
     limit: int = DEFAULT_SEARCH_RESULTS
+
+    @field_validator('expense_id')
+    @classmethod
+    def _expense_id_is_positive(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value <= 0:
+            raise ValueError('expense_id must be a positive row id')
+        return value
 
     @field_validator('merchant')
     @classmethod
@@ -76,8 +84,8 @@ class ExpenseSearchCriteria(StrictModel):
 
     @model_validator(mode='after')
     def _at_least_one_criterion(self) -> 'ExpenseSearchCriteria':
-        if not (self.merchant or self.date_from or self.date_to
-                or self.amount is not None):
+        if not (self.expense_id or self.merchant or self.date_from
+                or self.date_to or self.amount is not None):
             raise ValueError(
                 'enter a merchant, a date range, or an amount to search')
         if (self.date_from and self.date_to
@@ -145,6 +153,16 @@ class ExpenseEdit(ExpenseFieldRules):
 
     expense_id: int
     category_id: Optional[int] = None
+    #: Mirrors ExpenseRecord.distance_miles. Every caller must pass this
+    #: explicitly (there is no "not supplied, leave unchanged" sentinel) --
+    #: see apply_edit's `after` construction, which now writes this value
+    #: rather than carrying `before.distance_miles` forward.
+    distance_miles: Optional[float] = None
+    #: Mirrors ExpenseRecord.map_link. Same "every caller passes it
+    #: explicitly" rule as distance_miles -- the dialog's Map Link box is
+    #: operator-editable now, so apply_edit writes this rather than carrying
+    #: `before.map_link` forward.
+    map_link: str = ''
 
     @field_validator('expense_id')
     @classmethod
@@ -152,6 +170,11 @@ class ExpenseEdit(ExpenseFieldRules):
         if value <= 0:
             raise ValueError('expense_id must be a positive row id')
         return value
+
+    @field_validator('map_link')
+    @classmethod
+    def _trim_map_link(cls, value: str) -> str:
+        return value.strip()
 
 
 class ExpenseEditResult(StrictModel):
@@ -197,6 +220,18 @@ def amount_changed(before: float, after: float) -> bool:
     return abs(abs(before) - abs(after)) >= AMOUNT_MATCH_TOLERANCE
 
 
+#: Distance is stored to one decimal place on the way in from the dialog;
+#: half of that rounding step is "the same distance" for change-detection.
+DISTANCE_MATCH_TOLERANCE = 0.05
+
+
+def distance_changed(before: Optional[float], after: Optional[float]) -> bool:
+    """Whether two optional distances differ by more than the tolerance."""
+    if before is None or after is None:
+        return before is not after
+    return abs(before - after) >= DISTANCE_MATCH_TOLERANCE
+
+
 def describe_changes(before: ExpenseRecord, edit: ExpenseEdit) -> tuple[str, ...]:
     """Which fields an edit actually alters, for the response and the log.
 
@@ -213,6 +248,10 @@ def describe_changes(before: ExpenseRecord, edit: ExpenseEdit) -> tuple[str, ...
         changed.append('amount')
     if before.category_id != edit.category_id:
         changed.append('category_id')
+    if distance_changed(before.distance_miles, edit.distance_miles):
+        changed.append('distance')
+    if before.map_link != edit.map_link:
+        changed.append('map_link')
     return tuple(changed)
 
 

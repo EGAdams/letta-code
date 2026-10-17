@@ -217,6 +217,7 @@ def build_server_specs(
     letta_remote_log_cache: str,
     executor_startup_log: str,
     logger_api_startup_log: str,
+    toyota_service_url: str,
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
 
@@ -289,6 +290,18 @@ def build_server_specs(
                  'start.sh, :8931) — serves the "Agent Blocks Docs" SPA and its '
                  '/api/git-status + /api/run-update routes. It starts with the '
                  'dashboard; RED means that startup failed or the process exited.',
+        ),
+        ServerSpec(
+            key='toyota-receptionist',
+            name='Toyota Receptionist',
+            probe=HttpProbe(health_url=f'{toyota_service_url}/health'),
+            log_file='/tmp/toyota_receptionist.log',
+            note='receptionist_team sidecar (agent_blocks/lancedb_memory, '
+                 'loopback :8767) — the brain behind Toyota\'s home-screen box: '
+                 'LanceDB conversation memory plus delegation to the finance_team '
+                 'roles. RED means her box silently falls back to the Letta '
+                 'streaming brain, which has neither. First start takes ~30s '
+                 'while the sentence-transformers model loads.',
         ),
         ServerSpec(
             key='mcp-proxy',

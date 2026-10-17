@@ -42,6 +42,7 @@ def test_records_as_json_uses_browser_contract_without_vendor_alias():
         'address': '',
         'distance_miles': None,
         'map_link': '',
+        'category_id': 140,
         'category_name': 'Office',
         'notes': '',
     }]
@@ -84,6 +85,21 @@ def test_dates_are_normalized_before_change_detection():
         record(transaction_date='2026-08-15'),
         edit(merchant_name='Kroger', transaction_date='20260815')) == ()
     assert edit(transaction_date='2024-02-29').transaction_date == '2024-02-29'
+
+
+def test_map_link_change_is_detected_and_trimmed():
+    assert describe_changes(
+        record(map_link=''),
+        edit(merchant_name='Kroger', map_link='  https://maps.example/x  '),
+    ) == ('map_link',)
+    assert edit(map_link='  https://maps.example/x  ').map_link == (
+        'https://maps.example/x')
+
+
+def test_unchanged_map_link_is_not_reported():
+    assert 'map_link' not in describe_changes(
+        record(map_link='https://maps.example/x'),
+        edit(merchant_name='Kroger', map_link='https://maps.example/x'))
 
 
 def test_search_limit_boundaries_remain_clamped():

@@ -37,6 +37,15 @@ describe("DeterministicSentenceSegmenter", () => {
     ]);
     expect(segmenter.flush()).toBe("boundary");
   });
+
+  test("prefers a clause boundary over a mid-clause space at the length limit", () => {
+    const segmenter = new DeterministicSentenceSegmenter(60);
+    const phrases = segmenter.push(
+      "Speech generation itself was much faster: 0.05 to 1.76 seconds after the fix",
+    );
+    expect(phrases).toEqual(["Speech generation itself was much faster:"]);
+    expect(segmenter.flush()).toBe("0.05 to 1.76 seconds after the fix");
+  });
 });
 
 describe("ConversationCoordinator", () => {

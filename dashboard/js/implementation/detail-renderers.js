@@ -4,15 +4,28 @@ import {
   ConversationCoordinator,
   DeterministicSentenceSegmenter,
 } from "../abstract/conversation-coordinator.js";
+import {
+  ConversationLatencyObserver,
+  LatencyMilestone,
+  LatencyOutcome,
+} from "../abstract/conversation-latency-observer.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
 import { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
 import { SessionState } from "../abstract/voice-session.js";
 import { AgentStreamController } from "./agent-stream-controller.js";
+import { buildConversationContextRow } from "./conversation-context-panel.js";
 import { DomConsoleView } from "./dom-console-view.js";
+import {
+  CompositeLatencySink,
+  ConsoleLatencySink,
+  HttpLatencySink,
+  PerformanceClock,
+} from "./latency-telemetry.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 import { SequentialSpeechQueue } from "./sequential-speech-queue.js";
+import { RandomIdSource } from "./system-session-primitives.js";
 import { EditableTextareaSurface } from "./textarea-note-surfaces.js";
 import { TranscriptSyncedNote } from "./transcript-synced-note.js";
 
@@ -728,6 +741,15 @@ export class InputOptionsRenderer extends DetailRenderer {
     coordinatorFactory = (deps) => new ConversationCoordinator(deps),
     sentenceSegmenterFactory = () => new DeterministicSentenceSegmenter(),
     speechQueueFactory = (deps) => new SequentialSpeechQueue(deps),
+    latencyObserver = new ConversationLatencyObserver({
+      clock: new PerformanceClock(),
+      traceIds: new RandomIdSource(),
+      sink: new CompositeLatencySink([
+        new ConsoleLatencySink(),
+        new HttpLatencySink(http),
+      ]),
+    }),
+    latencyIds = new RandomIdSource(),
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -754,6 +776,31 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._coordinatorFactory = coordinatorFactory;
     this._sentenceSegmenterFactory = sentenceSegmenterFactory;
     this._speechQueueFactory = speechQueueFactory;
+    this._latencyObserver = latencyObserver;
+    this._latencyIds = latencyIds;
+    // Set by the recorder's Stop handler, consumed by the next send() so a
+    // voice turn's SPEECH_ENDED/TRANSCRIPT_READY marks land on the same
+    // trace as its AGENT_REQUESTED mark. Cleared on every send() attempt.
+    this._pendingLatencyTrace = null;
+  }
+
+  /**
+   * Starts a latency trace, or returns null. Telemetry must never break a
+   * real send, so a bad clock/id source degrades to "not measured" instead
+   * of throwing (mark/finish/discard on `this._latencyObserver` are already
+   * no-throw by contract — only begin() can fail).
+   */
+  _beginLatencyTrace(inputMode) {
+    try {
+      return this._latencyObserver.begin({
+        sessionId: this._agentId || "unknown",
+        generationId: this._latencyIds.next("gen"),
+        agentId: this._agentId || "unknown",
+        inputMode,
+      });
+    } catch {
+      return null;
+    }
   }
 
   _el(tag, props = {}) {
@@ -994,6 +1041,16 @@ export class InputOptionsRenderer extends DetailRenderer {
     const afterModel = colChildren[colChildren.indexOf(modelRow) + 1];
     col.insertBefore(voiceSelectRow, afterModel || null);
 
+    // ── Conversation context: usage bar + Save to Memory / Clear ──────────
+    const { row: contextRow, refresh: refreshContext } =
+      buildConversationContextRow({
+        el: this._el.bind(this),
+        http: this._http,
+        agentId: id,
+        showStatus,
+      });
+    col.insertBefore(contextRow, voiceSelectRow.nextSibling);
+
     autoSendBtn.addEventListener("click", () => {
       autoSendOn = !autoSendOn;
       autoSendBtn.style.background = autoSendOn ? "#2f55e7" : "#6c757d";
@@ -1081,9 +1138,19 @@ export class InputOptionsRenderer extends DetailRenderer {
       if (sendBtn.disabled) return;
       const text = textOverride ?? note.getText();
       if (!text.trim()) {
+        if (this._pendingLatencyTrace) {
+          this._latencyObserver.discard(
+            this._pendingLatencyTrace,
+            "empty_text",
+          );
+          this._pendingLatencyTrace = null;
+        }
         showStatus("Nothing to send.", true);
         return;
       }
+      const traceId =
+        this._pendingLatencyTrace ?? this._beginLatencyTrace("typed");
+      this._pendingLatencyTrace = null;
       sendBtn.disabled = true;
       // Clearing an editable message box after sending is a reset. Doing it to
       // a read-only note surface would delete the user's document, so the
@@ -1092,9 +1159,24 @@ export class InputOptionsRenderer extends DetailRenderer {
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       const turn = appendTurn(
         userRow,
-        `<span class="msi-line">${TextUtils.esc(this._agentName || "Agent")} is working…</span>`,
+        `<span class="msi-line">${TextUtils.esc(this._agentName || "Agent")} is working<span class="msi-working-elapsed"></span>…</span>`,
       );
+      // Ticks the "is working" line with elapsed seconds so a real hang is
+      // visibly distinguishable from a static, indistinguishable-from-frozen
+      // label — past the typical few-second reply time it also names the
+      // request that's outstanding, since that's what to check first.
+      const workingStartedAt = Date.now();
+      const workingTimer = setInterval(() => {
+        const el = turn.querySelector(".msi-working-elapsed");
+        if (!el) return;
+        const secs = Math.round((Date.now() - workingStartedAt) / 1000);
+        el.textContent =
+          secs < 10
+            ? ` (${secs}s)`
+            : ` (${secs}s — still waiting on the agent request)`;
+      }, 1000);
       const showTurn = (bodyHtml) => {
+        clearInterval(workingTimer);
         turn.innerHTML = `${userRow}<div class="msi-gap"></div>${bodyHtml}`;
         consoleEl.scrollTop = consoleEl.scrollHeight;
       };
@@ -1102,6 +1184,8 @@ export class InputOptionsRenderer extends DetailRenderer {
       try {
         activeCoordinator?.interrupt();
         let replyText = "";
+        let firstDeltaMarked = false;
+        let firstSentenceMarked = false;
         const coordinator = this._coordinatorFactory({
           agent: this._conversationAgent,
           session: this._voiceSession,
@@ -1110,9 +1194,35 @@ export class InputOptionsRenderer extends DetailRenderer {
           speechQueue: this._speechQueueFactory({
             speech: this._speech,
             session: this._voiceSession,
+            telemetry: traceId
+              ? (event) => {
+                  if (event === "tts_requested")
+                    this._latencyObserver.mark(
+                      traceId,
+                      LatencyMilestone.FIRST_TTS_REQUESTED,
+                    );
+                  else if (event === "audio_ready")
+                    this._latencyObserver.mark(
+                      traceId,
+                      LatencyMilestone.FIRST_AUDIO_READY,
+                    );
+                  else if (event === "audio_playing")
+                    this._latencyObserver.mark(
+                      traceId,
+                      LatencyMilestone.FIRST_AUDIO_PLAYING,
+                    );
+                }
+              : undefined,
           }),
           observer: {
             onAssistantDelta: (_generationId, delta) => {
+              if (traceId && !firstDeltaMarked) {
+                firstDeltaMarked = true;
+                this._latencyObserver.mark(
+                  traceId,
+                  LatencyMilestone.FIRST_AGENT_DELTA,
+                );
+              }
               replyText += delta;
               showTurn(
                 renderReplyRows(
@@ -1121,20 +1231,44 @@ export class InputOptionsRenderer extends DetailRenderer {
                 ),
               );
             },
+            onSpeechQueued: () => {
+              if (traceId && !firstSentenceMarked) {
+                firstSentenceMarked = true;
+                this._latencyObserver.mark(
+                  traceId,
+                  LatencyMilestone.FIRST_SENTENCE_QUEUED,
+                );
+              }
+            },
+            onTurnComplete: () => {
+              if (traceId)
+                this._latencyObserver.finish(traceId, LatencyOutcome.COMPLETED);
+            },
             onError: (_generationId, error) => {
+              if (traceId)
+                this._latencyObserver.finish(traceId, LatencyOutcome.FAILED);
               showStatus(`Answer received (${error.message}).`, true);
             },
           },
         });
         activeCoordinator = coordinator;
+        if (traceId)
+          this._latencyObserver.mark(traceId, LatencyMilestone.AGENT_REQUESTED);
         const outcome = await coordinator.start(
           { agent: id, text },
           { agentName: this._agentName, speak: !!this._speech?.supported },
         );
         if (outcome.status === "interrupted") {
+          if (traceId)
+            this._latencyObserver.finish(traceId, LatencyOutcome.INTERRUPTED);
           showTurn('<span class="msi-line">Turn interrupted.</span>');
           return;
         }
+        // Text-only turns (speak === false, or no speakable output) complete
+        // here rather than through onTurnComplete, which only fires once
+        // queued speech finishes.
+        if (traceId && outcome.spokenSegments === 0)
+          this._latencyObserver.finish(traceId, LatencyOutcome.COMPLETED);
         showTurn(
           renderReplyRows(
             [{ type: "assistant_message", text: outcome.text }],
@@ -1142,12 +1276,17 @@ export class InputOptionsRenderer extends DetailRenderer {
           ),
         );
         showStatus("Answer received.");
+        refreshContext();
       } catch (e) {
         activeCoordinator = null;
         if (this._voiceSession.state === SessionState.INTERRUPTED) {
+          if (traceId)
+            this._latencyObserver.finish(traceId, LatencyOutcome.INTERRUPTED);
           showTurn('<span class="msi-line">Turn interrupted.</span>');
           return;
         }
+        if (traceId)
+          this._latencyObserver.finish(traceId, LatencyOutcome.FAILED);
         this._onStatus(id, "error");
         showTurn(
           `<span class="msi-line err">! ${TextUtils.esc(e.message)}</span>`,
@@ -1185,18 +1324,41 @@ export class InputOptionsRenderer extends DetailRenderer {
     startBtn.addEventListener("click", async () => {
       if (recorder.isRecording) {
         showStatus("Transcribing & cleaning up…");
+        const traceId = this._beginLatencyTrace("push_to_talk");
+        if (traceId)
+          this._latencyObserver.mark(traceId, LatencyMilestone.SPEECH_ENDED);
         let data;
         try {
           data = await recorder.stop();
         } catch (e) {
+          if (traceId)
+            this._latencyObserver.discard(traceId, "transcription_failed");
           showStatus(e.message, true);
           return;
         }
-        if (!data) return;
+        if (!data) {
+          if (traceId) this._latencyObserver.discard(traceId, "no_transcript");
+          return;
+        }
+        if (traceId) {
+          this._latencyObserver.mark(
+            traceId,
+            LatencyMilestone.TRANSCRIPT_READY,
+          );
+          this._pendingLatencyTrace = traceId;
+        }
         textEl.value = data.cleaned_text || "";
         showStatus("Transcribed & cleaned. Tap Send or enable Auto Send.");
         if (autoSendOn) await send();
       } else {
+        // A fresh recording abandons any transcript that was never sent.
+        if (this._pendingLatencyTrace) {
+          this._latencyObserver.discard(
+            this._pendingLatencyTrace,
+            "superseded_by_new_recording",
+          );
+          this._pendingLatencyTrace = null;
+        }
         interruptCurrentTurn();
         showStatus("Listening…");
         const ok = await recorder.start();
@@ -1240,17 +1402,41 @@ export class InputOptionsRenderer extends DetailRenderer {
           )
             return;
           lastIntentText = candidate;
+          const traceId = this._beginLatencyTrace("continuous");
+          if (traceId) {
+            // The browser's recognizer hands back final text directly, so
+            // there is no separate STT step to time here.
+            this._latencyObserver.mark(traceId, LatencyMilestone.SPEECH_ENDED);
+            this._latencyObserver.mark(
+              traceId,
+              LatencyMilestone.TRANSCRIPT_READY,
+            );
+          }
           intentQueue = intentQueue.then(async () => {
             let decision;
             try {
               decision =
                 await this._receptionistIntentPolicy.evaluate(candidate);
             } catch {
+              if (traceId)
+                this._latencyObserver.discard(
+                  traceId,
+                  "intent_evaluation_failed",
+                );
               return;
             }
-            if (!decision?.addressed || !decision.cleaned_text?.trim()) return;
-            if (candidate === autoSentText) return;
+            if (!decision?.addressed || !decision.cleaned_text?.trim()) {
+              if (traceId)
+                this._latencyObserver.discard(traceId, "not_addressed");
+              return;
+            }
+            if (candidate === autoSentText) {
+              if (traceId)
+                this._latencyObserver.discard(traceId, "duplicate_candidate");
+              return;
+            }
             autoSentText = candidate;
+            this._pendingLatencyTrace = traceId;
             await send({
               textOverride: decision.cleaned_text.trim(),
               preserveInput: true,

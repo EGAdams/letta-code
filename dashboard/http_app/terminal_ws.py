@@ -51,6 +51,12 @@ class TerminalWebSocketMixin:
             return
 
         sock = self.connection
+        # ReusableHTTPServer bounds every connection's blocking I/O with a
+        # socket timeout so a wedged handler can't leak its thread/fd forever
+        # (see runtime.py) -- but this connection is meant to sit open and
+        # silent for minutes at a time (an idle shell prompt), so it opts out
+        # and manages its own lifecycle via the alive/select loop below.
+        sock.settimeout(None)
         pid, master_fd = _terminal_spawn_shell(cols, rows, target)
         alive = threading.Event()
         alive.set()

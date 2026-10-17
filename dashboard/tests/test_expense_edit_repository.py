@@ -50,6 +50,26 @@ def test_edit_returns_corrected_record():
     assert record.category_name == 'Rosemary'
 
 
+def test_edit_writes_a_changed_map_link():
+    probe = FakeProbe(available=('id_light', 'map_link'))
+    repo, connection = repository(
+        [row(map_link='https://maps.example/old')], probe=probe)
+    result = repo.apply_edit(edit(map_link='https://maps.example/new'))
+    assert result.changed_fields == ('description', 'map_link')
+    assert result.record.map_link == 'https://maps.example/new'
+    update = [params for sql, params in connection.cur.executed
+              if sql.startswith('UPDATE')][0]
+    assert 'https://maps.example/new' in update
+
+
+def test_edit_does_not_write_map_link_without_the_column():
+    repo, connection = repository([row(map_link='https://maps.example/old')])
+    repo.apply_edit(edit(map_link='https://maps.example/new'))
+    update_sql = [sql for sql, _ in connection.cur.executed
+                  if sql.startswith('UPDATE')][0]
+    assert 'map_link' not in update_sql
+
+
 def test_search_and_read_carry_an_existing_note():
     probe = FakeProbe(available=('id_light', 'notes'))
     repo, _ = repository(
@@ -86,6 +106,30 @@ def test_delete_unknown_expense_never_commits():
     with pytest.raises(ExpenseNotFound):
         repo.delete(501)
     assert connection.commits == 0
+
+
+def test_neighbor_next_finds_the_closest_higher_id():
+    repo, _ = repository([row(id=501), row(id=490), row(id=510)])
+    assert repo.neighbor(501, step=1).id == 510
+
+
+def test_neighbor_prev_finds_the_closest_lower_id():
+    repo, _ = repository([row(id=501), row(id=490), row(id=510)])
+    assert repo.neighbor(501, step=-1).id == 490
+
+
+def test_neighbor_at_the_end_of_the_table_raises():
+    repo, _ = repository([row(id=501)])
+    with pytest.raises(ExpenseNotFound):
+        repo.neighbor(501, step=1)
+    with pytest.raises(ExpenseNotFound):
+        repo.neighbor(501, step=-1)
+
+
+def test_neighbor_of_an_unknown_expense_raises():
+    repo, _ = repository([])
+    with pytest.raises(ExpenseNotFound):
+        repo.neighbor(501, step=1)
 
 
 def test_category_and_date_changes_are_reported_precisely():

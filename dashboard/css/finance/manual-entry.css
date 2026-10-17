@@ -73,6 +73,18 @@
     word-break:break-word;
 }
 .expense-edit-fields { margin-top:var(--manual-entry-block-space); padding-top:var(--manual-entry-block-space); border-top:1px solid #808080; }
+.expense-edit-nav { display:flex; justify-content:flex-end; gap:calc(4px + 15px); margin-top:var(--manual-entry-block-space); }
+
+/* Show Map / Distance / Mileage row: button on the left, the two labeled
+   boxes filling the rest. */
+.expense-edit-mileage-row { display:flex; align-items:flex-end; gap:calc(4px + 15px); flex-wrap:wrap; }
+.expense-edit-mileage-row .manual-entry-field { margin:0; }
+.expense-edit-mileage-row .manual-entry-field input { max-width:120px; }
+/* Save Changes and Show Map share this so the two buttons render at the
+   same width/height regardless of their label length. */
+.expense-edit-fixed-size-button { min-width:140px; text-align:center; }
+/* Read-only: the operator never types here, distance x2 is derived. */
+.expense-edit-mileage-value { background:#f0f0f0; }
 
 /* Ambiguous-vendor pick-list. */
 .manual-entry-vendor-candidates {
@@ -123,4 +135,10 @@
     transform:translateY(6px) scale(1.2);
     transform-origin:left center;
     font-family:"Courier New",Courier,monospace;
+}
+/* Keep ID, category name and ancestry columns aligned in native menus. */
+select.expense-category-select,
+select.expense-category-select option {
+    font-family: "Courier New", Courier, monospace;
+    white-space: pre;
 }

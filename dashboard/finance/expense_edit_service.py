@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from finance import vendor_lookup
 from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
 from finance.expense_edit_repository import readable_validation_error, records_as_json
-from finance.http_coercion import as_float, as_int
+from finance.http_coercion import as_float, as_int, as_optional_float
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ def edit_stored_expense(deps: Collaborators, data, repository=None, namer=None,
         expense_id = as_int(data.get('expense_id'), 'expense_id')
         total_amount = as_float(data.get('total_amount'), 'total_amount')
         category_id = resolver.id_for(data.get('category_name'))
+        distance_miles = as_optional_float(data.get('distance_miles'), 'distance_miles')
     except ValueError as exc:
         return {'ok': False, 'error': str(exc)}
     try:
@@ -61,6 +62,8 @@ def edit_stored_expense(deps: Collaborators, data, repository=None, namer=None,
             transaction_date=data.get('transaction_date', ''),
             total_amount=total_amount,
             category_id=category_id,
+            distance_miles=distance_miles,
+            map_link=str(data.get('map_link') or ''),
         )
     except ValidationError as exc:
         return {'ok': False, 'error': readable_validation_error(exc)}

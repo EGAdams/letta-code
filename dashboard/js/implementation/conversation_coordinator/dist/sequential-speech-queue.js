@@ -3,10 +3,12 @@ export class SequentialSpeechQueue {
   states = new Map();
   speech;
   session;
-  constructor({ speech, session = null }) {
+  telemetry;
+  constructor({ speech, session = null, telemetry = null }) {
     if (!speech) throw new Error("SequentialSpeechQueue requires speech");
     this.speech = speech;
     this.session = session;
+    this.telemetry = telemetry;
   }
   enqueue(segment, agentName) {
     let state = this.states.get(segment.generationId);
@@ -26,6 +28,7 @@ export class SequentialSpeechQueue {
     state.pendingCount += 1;
     state.chain = state.chain.then(async () => {
       if (state?.cancelled) return;
+      this.emitTelemetry("tts_requested", segment);
       const playback = this.speech.speak(segment.text, agentName);
       if (!playback) return;
       state.current = playback;
@@ -47,6 +50,10 @@ export class SequentialSpeechQueue {
         playback.cancel?.();
         return;
       }
+      // This synthesizer resolves `pending` once audio is decoded and already
+      // playing, so ready and playing are the same observable instant here.
+      this.emitTelemetry("audio_ready", segment);
+      this.emitTelemetry("audio_playing", segment);
       await (playback.finished ?? Promise.resolve());
       state.current = null;
     });
@@ -60,6 +67,13 @@ export class SequentialSpeechQueue {
       await state.chain;
     } finally {
       this.states.delete(generationId);
+    }
+  }
+  emitTelemetry(event, segment) {
+    try {
+      this.telemetry?.(event, segment);
+    } catch {
+      // Telemetry is observational and must never break playback.
     }
   }
   cancel(generationId) {

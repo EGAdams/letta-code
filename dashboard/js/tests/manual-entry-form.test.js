@@ -1127,6 +1127,8 @@ describe("ManualEntryForm._saveAll", () => {
       transaction_date: "2026-08-15",
       total_amount: 12.34,
       category_name: "Travel & Vehicle",
+      distance_miles: null,
+      map_link: "",
     });
     expect(form._statusEl.textContent).toContain("1 expense(s) updated");
   });

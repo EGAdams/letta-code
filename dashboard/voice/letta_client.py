@@ -41,7 +41,7 @@ class LettaClient:
         )
 
     def resolve_agent_id(self, name):
-        data = self._request("GET", "/v1/agents?limit=200", timeout=10)
+        data = self._request("GET", "/v1/agents?limit=200", timeout=3)
         agents = data if isinstance(data, list) else data.get("agents", [])
         for agent in agents:
             if agent.get("name") == name:

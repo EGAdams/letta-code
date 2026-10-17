@@ -92,6 +92,31 @@ def delete_stored_expense(deps: Collaborators, data, repository=None):
     return response
 
 
+def neighbor_stored_expense(deps: Collaborators, data, repository=None):
+    """POST /api/expense-neighbor: the Prev/Next buttons on Edit Expense.
+
+    Walks the whole `expenses` table by id, not the operator's current
+    search results -- "Prev Record"/"Next Record" names what this looks up,
+    as distinct from paging through the rows already on screen.
+    """
+    data = data or {}
+    repo = repository or deps.get_expense_edit_repository()
+    try:
+        expense_id = as_int(data.get('expense_id'), 'expense_id')
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    if expense_id <= 0:
+        return {'ok': False, 'error': 'expense_id must be a positive row id'}
+    step = -1 if data.get('direction') == 'prev' else 1
+    try:
+        record = repo.neighbor(expense_id, step)
+    except ExpenseNotFound as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    return {'ok': True, 'record': records_as_json([record])[0]}
+
+
 def add_sales_tax_to_expense(deps: Collaborators, data, repository=None):
     """POST /api/expense-add-tax: put sales tax back on one stored row.
 
@@ -132,6 +157,8 @@ def add_sales_tax_to_expense(deps: Collaborators, data, repository=None):
             transaction_date=before.transaction_date,
             total_amount=float(taxed),
             category_id=before.category_id,
+            distance_miles=before.distance_miles,
+            map_link=before.map_link,
         ))
     except (ExpenseNotFound, ValidationError) as exc:
         return {'ok': False, 'error': readable_validation_error(exc)}

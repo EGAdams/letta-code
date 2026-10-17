@@ -208,13 +208,31 @@ export class DeterministicSentenceSegmenter implements SentenceSegmenterPort {
   private takeLengthBoundedPhrase(): string | null {
     if (this.buffer.length <= this.maxCharacters) return null;
     const window = this.buffer.slice(0, this.maxCharacters + 1);
-    const splitAt = Math.max(window.lastIndexOf(", "), window.lastIndexOf(" "));
+    const splitAt = this.findSplitPoint(window);
     if (splitAt < 1) return null;
+    const keepPunctuation = /[:;,—]/u.test(window[splitAt] ?? "");
     const phrase = this.buffer
-      .slice(0, splitAt + (window[splitAt] === "," ? 1 : 0))
+      .slice(0, splitAt + (keepPunctuation ? 1 : 0))
       .trim();
     this.buffer = this.buffer.slice(splitAt + 1).replace(/^\s+/u, "");
     return phrase || null;
+  }
+
+  /**
+   * A raw "last space in the window" split can land inside a short clause
+   * ("was much" | "faster: ...") when the buffer never hit sentence-ending
+   * punctuation before crossing maxCharacters. Prefer the nearest clause
+   * boundary (colon, semicolon, em dash) in the window so the fallback still
+   * reads as a pause between thoughts, not a cut mid-thought.
+   */
+  private findSplitPoint(window: string): number {
+    let best = -1;
+    for (const marker of [": ", "; ", "—"]) {
+      const index = window.lastIndexOf(marker);
+      if (index > best) best = index;
+    }
+    if (best > 0) return best;
+    return Math.max(window.lastIndexOf(", "), window.lastIndexOf(" "));
   }
 }
 

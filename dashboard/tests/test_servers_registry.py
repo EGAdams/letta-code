@@ -21,6 +21,7 @@ import pytest
 from pydantic import ValidationError
 
 import server
+import toyota_service
 from hosts import LETTA_DOCKER_HOST
 from servers import registry
 from servers.registry import (
@@ -80,6 +81,7 @@ def _live_specs() -> tuple[ServerSpec, ...]:
         letta_remote_log_cache=server.LETTA_REMOTE_LOG_CACHE,
         executor_startup_log=server.EXECUTOR_STARTUP_LOG,
         logger_api_startup_log=server.LOGGER_API_STARTUP_LOG,
+        toyota_service_url=toyota_service.TOYOTA_SERVICE_URL,
     )
 
 
@@ -99,6 +101,7 @@ def _spec(**overrides) -> dict:
 #: a growing blind spot.
 KNOWN_POST_BASELINE_ADDITIONS = {
     'agent-blocks', 'chatgpt-provider', 'scanner-intake-watchdog',
+    'toyota-receptionist',
 }
 
 
@@ -282,7 +285,8 @@ class TestTheFactoryTakesItsValuesFromTheCompositionRoot:
             port=9999, letta_base_url='http://letta.test',
             letta_docker_host='host', letta_remote_log_cache='/tmp/a.log',
             executor_startup_log='/tmp/b.log',
-            logger_api_startup_log='/tmp/c.log')
+            logger_api_startup_log='/tmp/c.log',
+            toyota_service_url='http://127.0.0.1:8767')
         dashboard = next(s for s in specs if s.key == 'dashboard')
         assert dashboard.probe.health_url == 'http://localhost:9999/'
 
@@ -291,7 +295,8 @@ class TestTheFactoryTakesItsValuesFromTheCompositionRoot:
             port=8765, letta_base_url='http://letta.test',
             letta_docker_host='box', letta_remote_log_cache='/tmp/a.log',
             executor_startup_log='/tmp/b.log',
-            logger_api_startup_log='/tmp/c.log')
+            logger_api_startup_log='/tmp/c.log',
+            toyota_service_url='http://127.0.0.1:8767')
         letta = next(s for s in specs if s.key == 'letta')
         assert letta.probe.health_url == 'http://letta.test/v1/health/'
         assert 'http://letta.test' in letta.note

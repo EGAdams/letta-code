@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - dialog [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Dashboard Startup Checks
+      - generic [ref=e5]: Running Dashboard checks...
+      - generic [ref=e7]:
+        - generic [ref=e8]: "[12:53:52 PM] Checking server and SSH connections..."
+        - generic [ref=e9]: "[12:53:52 PM] Calling /api/server-health..."
+        - generic [ref=e10]: "[12:53:52 PM] Calling /api/ssh-connection-health..."
+  - complementary [ref=e11]:
+    - heading "Dashboard" [level=1] [ref=e12]
+    - navigation [ref=e13]:
+      - button "Home"
+      - button "ROL Finance"
+      - button "System Status"
+      - button "Agent Management"
+      - button "Project Plans"
+      - button "Agent Blocks"
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - heading "Toyota" [level=2] [ref=e16]
+      - paragraph [ref=e17]: Your receptionist. Press Start Listening when you're ready to talk to her, or just type.

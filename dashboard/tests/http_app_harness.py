@@ -80,8 +80,10 @@ def default_returns():
     they are spelled out here rather than papered over.
     """
     import server as _server
+    from category_taxonomy import StaticCategoryTaxonomy
     an_existing_file = _os.path.join(_server.HERE, 'dashboard.html')
     return {
+        '_get_category_taxonomy': StaticCategoryTaxonomy([]),
         # (down_for, stale) — unpacked directly by /api/server-health
         'track_down_duration': lambda *a, **k: (0, False),
         # Pydantic results the routes serialise with .model_dump()
@@ -94,6 +96,12 @@ def default_returns():
         'build_receptionist_strategy': lambda *a, **k: FakeStrategy(),
         'note_command_service': lambda *a, **k: FakeStrategy(),
         'stream_letta_code_message': lambda *a, **k: iter(()),
+        'stream_toyota_turn': lambda *a, **k: iter(()),
+        # /api/receptionist-agent destructures this, and the real one probes
+        # the sidecar over loopback. Default to "sidecar down" so route tests
+        # describe a box with nothing extra running.
+        'preferred_backend': lambda *a, **k: {
+            'backend': 'letta', 'forced': False, 'service': None},
         # Routes that serve a file and 404 when the lookup comes back empty
         '_report_source_document_view': lambda *a, **k: an_existing_file,
     }
@@ -112,7 +120,9 @@ def default_returns():
 #: symptom of forgetting is not a red test — it is a green one that took 30
 #: seconds and touched the network.
 DIRECT_SERVICES = {
+    'finance.category_creation': ('create_category_vendor',),
     'agent_thoughts': ('message_text',),
+    'agents.conversation_management': ('context_payload', 'compact', 'reset_messages'),
     'codex_sync_status': ('codex_sync_status', 'run_codex_sync_now',
                           'toggle_codex_sync'),
     'document_annotation': ('render_excel_for_browser',),
@@ -124,6 +134,7 @@ DIRECT_SERVICES = {
     'model_stats.reader': ('model_stats',),
     'model_stats_mute': ('apply_mute_overlay', 'set_muted'),
     'letta_code.streaming': ('stream_letta_code_message',),
+    'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health'),
     'monitoring.log_files': ('log_activity_health',),
     'monitoring.pc_metrics': ('pc_metrics',),
     'monitoring.server_lifecycle': ('clear_server_starting',
@@ -131,6 +142,7 @@ DIRECT_SERVICES = {
     'monitoring.ssh_checks': ('cached_ssh_health', 'connection_log_rows',
                               'get_ssh_connection', 'run_manual_test'),
     'monitoring.win10_node': ('container_status_for', 'win10_container_states'),
+    'voice.latency_log': ('append',),
     'voice.note_factory': ('note_command_service',),
     'voice.pipeline': ('build_pipeline', 'handle_voice_upload'),
     'voice.receptionist': ('build_receptionist_strategy',),

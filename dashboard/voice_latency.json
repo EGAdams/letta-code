@@ -1,0 +1,587 @@
+[
+  {
+    "received_at": "2026-09-24T13:43:06.891246",
+    "traceId": "id-e1d766a4-9d54-44e9-b0d0-f94d390b8291",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-24f9d617-7ef1-49e2-8741-a9842262e519",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 23154.10000000149,
+    "finishedAtMs": 31144.400000000373,
+    "samples": {
+      "agent_requested": {
+        "atMs": 23155.800000000745
+      },
+      "first_agent_delta": {
+        "atMs": 28377.900000000373
+      },
+      "first_sentence_queued": {
+        "atMs": 28986
+      },
+      "first_tts_requested": {
+        "atMs": 28986.10000000149
+      },
+      "first_audio_ready": {
+        "atMs": 29035.700000001118
+      },
+      "first_audio_playing": {
+        "atMs": 29035.700000001118
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 5222.0999999996275,
+      "firstDeltaToSentence": 608.0999999996275,
+      "ttsToAudioReady": 49.59999999962747,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 5879.9000000003725
+    }
+  },
+  {
+    "received_at": "2026-09-24T14:10:25.334456",
+    "traceId": "id-359c0663-4af4-444c-b015-7e19b15eecc7",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-26ebe41c-b52e-46f2-98f3-ed0f6f01c7ae",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 1094958.3000000007,
+    "finishedAtMs": 1451036.6999999993,
+    "samples": {
+      "agent_requested": {
+        "atMs": 1094960.1999999993
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-09-24T14:14:46.818215",
+    "traceId": "id-87aeb288-c88a-4a65-97b8-5c19e6f52842",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-50258be7-f4ac-4c23-b08c-51084a334b76",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 29289.79999999702,
+    "finishedAtMs": 261529.79999999702,
+    "samples": {
+      "agent_requested": {
+        "atMs": 29290.79999999702
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-09-24T14:16:17.117814",
+    "traceId": "id-68f14be5-4dfb-40e1-ae52-aa7e5629f560",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-79ab1655-e26b-49df-a86c-d106a8b42c44",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 29936.699999999255,
+    "finishedAtMs": 90339.5,
+    "samples": {
+      "agent_requested": {
+        "atMs": 29939.400000002235
+      },
+      "first_agent_delta": {
+        "atMs": 39193.10000000149
+      },
+      "first_sentence_queued": {
+        "atMs": 40425.60000000149
+      },
+      "first_tts_requested": {
+        "atMs": 40425.900000002235
+      },
+      "first_audio_ready": {
+        "atMs": 42181.60000000149
+      },
+      "first_audio_playing": {
+        "atMs": 42181.800000000745
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 9253.699999999255,
+      "firstDeltaToSentence": 1232.5,
+      "ttsToAudioReady": 1755.699999999255,
+      "audioReadyToPlayback": 0.19999999925494194,
+      "agentToFirstAudio": 12242.39999999851
+    }
+  },
+  {
+    "received_at": "2026-09-24T14:18:35.202755",
+    "traceId": "id-9e4c2332-d929-4935-9d3e-f22ea27dc4ec",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-a4e4277c-0dde-4227-8bcc-bc99fbc4a654",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 131202.5,
+    "finishedAtMs": 228411.40000000224,
+    "samples": {
+      "agent_requested": {
+        "atMs": 131203.40000000224
+      },
+      "first_agent_delta": {
+        "atMs": 140537.80000000075
+      },
+      "first_sentence_queued": {
+        "atMs": 141114.30000000075
+      },
+      "first_tts_requested": {
+        "atMs": 141114.40000000224
+      },
+      "first_audio_ready": {
+        "atMs": 142203.6000000015
+      },
+      "first_audio_playing": {
+        "atMs": 142203.6000000015
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 9334.39999999851,
+      "firstDeltaToSentence": 576.5,
+      "ttsToAudioReady": 1089.199999999255,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 11000.199999999255
+    }
+  },
+  {
+    "received_at": "2026-09-24T15:34:08.690294",
+    "traceId": "id-5dac5c74-ce53-4aef-87e1-9281f558f1b3",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-4e829a52-4dfb-4a81-825b-9ed1f05d4d3c",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 107800.09999999776,
+    "finishedAtMs": 320931.30000000075,
+    "samples": {
+      "agent_requested": {
+        "atMs": 107805.09999999776
+      },
+      "first_agent_delta": {
+        "atMs": 246274.59999999776
+      },
+      "first_sentence_queued": {
+        "atMs": 246914
+      },
+      "first_tts_requested": {
+        "atMs": 246914.30000000075
+      },
+      "first_audio_ready": {
+        "atMs": 248343.69999999925
+      },
+      "first_audio_playing": {
+        "atMs": 248343.80000000075
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 138469.5,
+      "firstDeltaToSentence": 639.4000000022352,
+      "ttsToAudioReady": 1429.3999999985099,
+      "audioReadyToPlayback": 0.10000000149011612,
+      "agentToFirstAudio": 140538.70000000298
+    }
+  },
+  {
+    "received_at": "2026-09-24T15:35:18.242647",
+    "traceId": "id-abfae0c3-4519-4851-a2ca-b15a17811620",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-baecec47-3174-4c95-9062-ea6ec8999fe2",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 340356.80000000075,
+    "finishedAtMs": 390483.69999999925,
+    "samples": {
+      "agent_requested": {
+        "atMs": 340359.3999999985
+      },
+      "first_agent_delta": {
+        "atMs": 346256.69999999925
+      },
+      "first_sentence_queued": {
+        "atMs": 347800.09999999776
+      },
+      "first_tts_requested": {
+        "atMs": 347800.19999999925
+      },
+      "first_audio_ready": {
+        "atMs": 349871.8999999985
+      },
+      "first_audio_playing": {
+        "atMs": 349871.8999999985
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 5897.300000000745,
+      "firstDeltaToSentence": 1543.3999999985099,
+      "ttsToAudioReady": 2071.699999999255,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 9512.5
+    }
+  },
+  {
+    "received_at": "2026-09-24T15:55:53.549222",
+    "traceId": "id-72128699-5377-433a-a079-5673f433aca5",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-401cc0c7-3bc6-492e-8a95-f773a0d95fb1",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 1594819.3999999985,
+    "finishedAtMs": 1625789.5,
+    "samples": {
+      "agent_requested": {
+        "atMs": 1594820.5999999978
+      },
+      "first_agent_delta": {
+        "atMs": 1614381.0999999978
+      },
+      "first_sentence_queued": {
+        "atMs": 1615614.5
+      },
+      "first_tts_requested": {
+        "atMs": 1615614.5
+      },
+      "first_audio_ready": {
+        "atMs": 1616876.3999999985
+      },
+      "first_audio_playing": {
+        "atMs": 1616876.3999999985
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 19560.5,
+      "firstDeltaToSentence": 1233.4000000022352,
+      "ttsToAudioReady": 1261.8999999985099,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 22055.800000000745
+    }
+  },
+  {
+    "received_at": "2026-09-24T15:57:27.255668",
+    "traceId": "id-93100c4e-1d91-49bb-9469-187af269bdd1",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-e6c1802a-00d0-4ca7-8e38-e9378a295bd2",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 1661971,
+    "finishedAtMs": 1719496.8999999985,
+    "samples": {
+      "agent_requested": {
+        "atMs": 1661972.5999999978
+      },
+      "first_agent_delta": {
+        "atMs": 1675301.3999999985
+      },
+      "first_sentence_queued": {
+        "atMs": 1675813.0999999978
+      },
+      "first_tts_requested": {
+        "atMs": 1675813.0999999978
+      },
+      "first_audio_ready": {
+        "atMs": 1675827.0999999978
+      },
+      "first_audio_playing": {
+        "atMs": 1675827.0999999978
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 13328.800000000745,
+      "firstDeltaToSentence": 511.69999999925494,
+      "ttsToAudioReady": 14,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 13854.5
+    }
+  },
+  {
+    "received_at": "2026-09-24T16:03:32.057797",
+    "traceId": "id-9b908fdd-57ad-4bf5-96a6-6db80516bc91",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-483e7118-fe67-4991-a795-0e01cba4ddf9",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 1769694.5999999978,
+    "finishedAtMs": 2084299.0999999978,
+    "samples": {
+      "agent_requested": {
+        "atMs": 1769696.3999999985
+      },
+      "first_agent_delta": {
+        "atMs": 2024866.8999999985
+      },
+      "first_sentence_queued": {
+        "atMs": 2025382.6999999993
+      },
+      "first_tts_requested": {
+        "atMs": 2025382.6999999993
+      },
+      "first_audio_ready": {
+        "atMs": 2026741.8000000007
+      },
+      "first_audio_playing": {
+        "atMs": 2026741.8000000007
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 255170.5,
+      "firstDeltaToSentence": 515.8000000007451,
+      "ttsToAudioReady": 1359.1000000014901,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 257045.40000000224
+    }
+  },
+  {
+    "received_at": "2026-09-24T16:06:07.059007",
+    "traceId": "id-6977f98f-6493-4403-aa53-6a04bccbb129",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-e7a310af-82b9-498e-a483-509e3d6e0bd4",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 2148603.8999999985,
+    "finishedAtMs": 2239299.8999999985,
+    "samples": {
+      "agent_requested": {
+        "atMs": 2148605
+      },
+      "first_agent_delta": {
+        "atMs": 2193696.6999999993
+      },
+      "first_sentence_queued": {
+        "atMs": 2194274.5
+      },
+      "first_tts_requested": {
+        "atMs": 2194274.5999999978
+      },
+      "first_audio_ready": {
+        "atMs": 2195534.8000000007
+      },
+      "first_audio_playing": {
+        "atMs": 2195534.8000000007
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 45091.699999999255,
+      "firstDeltaToSentence": 577.8000000007451,
+      "ttsToAudioReady": 1260.2000000029802,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 46929.800000000745
+    }
+  },
+  {
+    "received_at": "2026-09-24T16:17:23.077035",
+    "traceId": "id-45693b38-fb3a-4dfd-9495-b201d30771c2",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-7db4f45d-2f23-4ab8-8b07-6df68a36ca35",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 2316667.0999999978,
+    "finishedAtMs": 2915318.6999999993,
+    "samples": {
+      "agent_requested": {
+        "atMs": 2316667.8999999985
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-09-24T16:20:08.310059",
+    "traceId": "id-a24d768e-3724-45d1-bfdd-c4750a618033",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-43ffce7d-3160-4a2a-a647-7398122d1fa4",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 57518.10000000149,
+    "finishedAtMs": 99479,
+    "samples": {
+      "agent_requested": {
+        "atMs": 57519.5
+      },
+      "first_agent_delta": {
+        "atMs": 69842.60000000149
+      },
+      "first_sentence_queued": {
+        "atMs": 70345.60000000149
+      },
+      "first_tts_requested": {
+        "atMs": 70345.80000000075
+      },
+      "first_audio_ready": {
+        "atMs": 71854.5
+      },
+      "first_audio_playing": {
+        "atMs": 71854.60000000149
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 12323.10000000149,
+      "firstDeltaToSentence": 503,
+      "ttsToAudioReady": 1508.699999999255,
+      "audioReadyToPlayback": 0.10000000149011612,
+      "agentToFirstAudio": 14335.10000000149
+    }
+  },
+  {
+    "received_at": "2026-09-24T16:25:07.180770",
+    "traceId": "id-ebd48d6d-a0a8-4a75-9244-ebd9b4e292aa",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-f6e12a7e-eb58-4eed-ab05-e83582eee2e7",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 115746.60000000149,
+    "finishedAtMs": 398349.6000000015,
+    "samples": {
+      "agent_requested": {
+        "atMs": 115747.80000000075
+      },
+      "first_agent_delta": {
+        "atMs": 357452.700000003
+      },
+      "first_sentence_queued": {
+        "atMs": 358061.6000000015
+      },
+      "first_tts_requested": {
+        "atMs": 358061.80000000075
+      },
+      "first_audio_ready": {
+        "atMs": 360434.40000000224
+      },
+      "first_audio_playing": {
+        "atMs": 360434.40000000224
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 241704.90000000224,
+      "firstDeltaToSentence": 608.8999999985099,
+      "ttsToAudioReady": 2372.60000000149,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 244686.6000000015
+    }
+  },
+  {
+    "received_at": "2026-09-24T16:39:51.458764",
+    "traceId": "id-bf5b970e-64b3-4aa0-8b2a-75425a1680fa",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-1e082067-fe46-48b5-b2a2-127967dfb455",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 39081,
+    "finishedAtMs": 65290.699999999255,
+    "samples": {
+      "agent_requested": {
+        "atMs": 39082.199999999255
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-10-03T18:07:25.209264",
+    "traceId": "id-abe93d97-a12a-4242-86bb-81710e2dcec3",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-283b47be-8609-415d-b193-5b3196e48aa5",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 47817.10000002384,
+    "finishedAtMs": 65785.60000002384,
+    "samples": {
+      "agent_requested": {
+        "atMs": 47832
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-10-17T12:39:42.899556",
+    "traceId": "id-f81a8579-a53f-4d00-9e3b-d26334323c9a",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-078a12de-d135-4a31-b7d2-4dc436f2ccb3",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 62147.79999998212,
+    "finishedAtMs": 84229.69999998808,
+    "samples": {
+      "agent_requested": {
+        "atMs": 62152.79999998212
+      }
+    },
+    "durationsMs": {}
+  },
+  {
+    "received_at": "2026-10-17T13:22:38.389520",
+    "traceId": "id-fb8659a7-17f6-4d55-9498-661fc599d879",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-29078f68-b946-4bbe-ba1c-9d1b48f3251b",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "failed",
+    "startedAtMs": 41525.09999999404,
+    "finishedAtMs": 50757.79999998212,
+    "samples": {
+      "agent_requested": {
+        "atMs": 41526.40000000596
+      },
+      "first_agent_delta": {
+        "atMs": 48289.40000000596
+      },
+      "first_sentence_queued": {
+        "atMs": 49233.09999999404
+      },
+      "first_tts_requested": {
+        "atMs": 49233.19999998808
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 6763,
+      "firstDeltaToSentence": 943.6999999880791
+    }
+  }
+]

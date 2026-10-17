@@ -22,7 +22,7 @@ from tests.http_app_harness import DashboardClient, ServiceRecorder, start_serve
 # --------------------------------------------------------------------------
 GET_ROUTES = [
     '/add_expense.html',
-    '/api/agent-activity', '/api/agent-card', '/api/agent-health',
+    '/api/agent-activity', '/api/agent-card', '/api/agent-context', '/api/agent-health',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
     '/api/agents', '/api/chatgpt-provider-account-status',
     '/api/claude-sdk-account', '/api/claude-sdk-activity',
@@ -32,7 +32,7 @@ GET_ROUTES = [
     '/api/mazda-mode', '/api/messages', '/api/model-stats',
     '/api/model-stats-agents', '/api/model-stats-sources', '/api/pc-metrics',
     '/api/pc-monitors', '/api/pending-vendor-review', '/api/receptionist-agent',
-    '/api/rol-finance-categories', '/api/rol-finance-month-status',
+    '/api/expense-categories', '/api/rol-finance-categories', '/api/rol-finance-month-status',
     '/api/rol-finance-recent-reports', '/api/rol-finance-recent-scans',
     '/api/rol-finance-reports', '/api/router-agent', '/api/scanner-diagnostics',
     '/api/scanner-intake-status', '/api/scanner-status', '/api/server-health',
@@ -44,11 +44,12 @@ GET_ROUTES = [
 
 POST_ROUTES = [
     '/api/add-expense-entry',
-    '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
+    '/api/agent-compact', '/api/agent-model', '/api/agent-oauth-account',
+    '/api/agent-reset-messages', '/api/agent-voice',
     '/api/claude-sdk-account',
     '/api/chatgpt-provider-account', '/api/claude-log', '/api/claude-toollog',
     '/api/codex-sync-now', '/api/codex-sync-toggle', '/api/expense-add-tax',
-    '/api/expense-delete', '/api/expense-edit',
+    '/api/expense-delete', '/api/expense-edit', '/api/expense-category-vendor', '/api/expense-neighbor',
     '/api/expense-search', '/api/expense-stored', '/api/fix-printer',
     '/api/headless-prompt', '/api/human-verify-expense', '/api/intake-halt',
     '/api/intake-halt-ack', '/api/intake-status', '/api/letta-code-message',
@@ -59,7 +60,8 @@ POST_ROUTES = [
     '/api/note-command-apply', '/api/note-command-complete', '/api/note-save',
     '/api/open-supporting-document', '/api/process-document', '/api/process-pdf',
     '/api/recategorize-expense', '/api/receipt-lookup', '/api/receipts-present',
-    '/api/receptionist-intent', '/api/reprocess-report', '/api/route-detect',
+    '/api/receptionist-intent', '/api/receptionist-turn',
+    '/api/reprocess-report', '/api/route-detect',
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',
     '/api/scanner-scan', '/api/server-action', '/api/set-receipt-vendor',

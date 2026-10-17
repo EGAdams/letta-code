@@ -165,6 +165,31 @@ class _ServerExpensePort:
     def submit_manual_expense_entry(self, data: object) -> dict:
         return _server().submit_manual_expense_entry(data)
 
+    def neighbor_stored_expense(self, data: object) -> dict:
+        return _server().neighbor_stored_expense(data)
+
+    def _category_catalog(self):
+        from finance.expense_categories import ExpenseCategoryCatalog
+        module = _server()
+        return ExpenseCategoryCatalog(
+            lambda: module._get_category_taxonomy(), module.taxonomy_category_namer())
+
+    def categories(self) -> dict:
+        return {'ok': True, 'categories': self._category_catalog().options()}
+
+    def create_category_vendor(self, data: object) -> dict:
+        from finance import category_creation, vendor_lookup
+        from finance.category_creation_repository import MySqlCategoryCreator
+        module = _server()
+        return category_creation.create_category_vendor(
+            data, creator=MySqlCategoryCreator(lambda: module._rol_get_connection()),
+            lookup_factory=vendor_lookup.vendor_category_lookup,
+            catalog=self._category_catalog(),
+            invalidate=lambda: module._get_category_taxonomy().invalidate())
+
+    def edit_stored_expense(self, data: object) -> dict:
+        return _server().edit_stored_expense(data, namer=self._category_catalog())
+
 
 @dataclass(frozen=True)
 class Ports:
