@@ -167,8 +167,31 @@ The typed session source and its ports live in
 `js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
 browser-loadable JS into `dist/`. See that module's README for the build command.
 
-Toyota's receptionist selects `StreamingLettaAgentAdapter` and
-`POST /api/letta-code-stream`. The endpoint starts Letta Code with
+Toyota's receptionist selects `StreamingLettaAgentAdapter` and one of two
+endpoints, decided per page load by `conversation_backend` from
+`/api/receptionist-agent`:
+
+| backend | endpoint | brain |
+|---|---|---|
+| `receptionist-team` | `POST /api/receptionist-turn` | the `receptionist_team` sidecar in `~/agent_blocks/lancedb_memory` — Groq conversation, LanceDB memory across sessions, and delegation to the `finance_team` roles. Preferred whenever it answers. |
+| `letta` | `POST /api/letta-code-stream` | the original Letta Code CLI. Used when the sidecar is down, or pinned with `TOYOTA_CONVERSATION_BACKEND=letta`. |
+
+Both emit the same NDJSON envelope deliberately, so this is one adapter with
+a different `endpoint` and everything above the `conversationAgent` port —
+mic, continuous listening, segmentation, edge-tts playback — is byte-identical
+either way. `toyota_service.py` owns the sidecar half: it translates
+`TurnRecord`s into provider events, and a connection refused becomes a spoken
+error naming the `toyota-receptionist` unit rather than a silent box. A
+delegated finance turn answers twice — a one-second acknowledgment, then the
+real reply minutes later — which the sentence queue plays as it would any two
+sentences. That is also why `TOYOTA_TURN_TIMEOUT` is ~30 minutes.
+
+The sidecar listens on `127.0.0.1:8767` only, and that is a security boundary,
+not a default: a delegated turn runs Claude with `bypassPermissions` and real
+Bash against the live `rol_finances` database, while this server is
+`0.0.0.0`-bound and reachable over Tailscale.
+
+The Letta endpoint starts Letta Code with
 `stream-json` plus partial messages and writes validated NDJSON records as
 they arrive. `ConversationCoordinator` publishes each assistant delta to the
 UI, uses `DeterministicSentenceSegmenter` to release complete sentences, and

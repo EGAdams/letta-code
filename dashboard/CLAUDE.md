@@ -204,9 +204,17 @@ Each of these is a real subsystem with its own invariants — read the doc befor
 
 | Doc | Covers |
 |---|---|
-| `docs/voice.md` | voice pipeline (`voice/`), Toyota's note + command channel, agents-home router (`router/`), Input Options "Send", phone/mic HTTPS setup |
+| `docs/voice.md` | voice pipeline (`voice/`), Toyota's two conversation brains (`toyota_service.py`), agents-home router (`router/`), Input Options "Send", phone/mic HTTPS setup |
 | `docs/finance-intake.md` | ROL Finance reports, Recent Report, scanners + health LEDs, scan → Mazda intake, Trainer escalation, statement review, LLM fallback chains |
 | `docs/operations.md` | Project Plans tab + Voice Communication workspace, server health/restart/Model Stats, boot autostart services |
+
+One dependency lives outside this repo: Toyota's preferred brain is the
+`receptionist_team` sidecar in `~/agent_blocks/lancedb_memory` (user unit
+`toyota-receptionist`, loopback `:8767`). `toyota_service.py` is the only
+module here that knows about it, the NDJSON `TurnRecord` shape is a contract
+across both repos, and a dead sidecar degrades Toyota to the Letta brain
+rather than breaking her box — see `docs/voice.md` and that package's own
+`CLAUDE.md`.
 
 Two cross-cutting rules worth stating here: **everything on the voice/note path fails closed** (a
 malformed reply or dead connection means "keep waiting" / "unchanged", never a guess), and the

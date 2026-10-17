@@ -14,6 +14,20 @@
 // Send and Save Note both clear it — so that second box and its listener are
 // gone. The underlying command-channel classes (js/abstract/voice-command-
 // channel.js and friends) stay in the tree; nothing else references them.
+//
+// Toyota has two brains, and the server picks which one on page load
+// (`conversation_backend` from /api/receptionist-agent):
+//
+//   receptionist-team -> /api/receptionist-turn, the receptionist_team sidecar
+//                        in ~/agent_blocks: LanceDB conversation memory plus
+//                        delegation to the finance_team roles. Preferred.
+//   letta             -> /api/letta-code-stream, the original Letta Code CLI,
+//                        used when the sidecar is down or pinned off.
+//
+// Both routes emit the same NDJSON envelope deliberately, so this is an
+// endpoint swap on one adapter rather than two adapters. Everything above the
+// conversationAgent port — mic, continuous listening, sentence segmentation,
+// edge-tts playback — is identical either way.
 
 import {
   BrowserSpeechRecognitionListener,
@@ -36,19 +50,28 @@ export async function startReceptionist({
 }) {
   let agentId;
   let voiceMediaBackend = "whisper";
+  let conversationBackend = "letta";
   try {
     const d = await http.getJSON("/api/receptionist-agent");
     if (!d?.ok || !d.agent_id) return;
     agentId = d.agent_id;
     voiceMediaBackend = d.voice_media_backend;
+    conversationBackend = d.conversation_backend ?? "letta";
   } catch {
     return;
   }
+  // An unrecognized value falls back to the Letta endpoint rather than
+  // guessing at a route that may not exist — a wrong guess here is a mute box.
+  const endpoint =
+    conversationBackend === "receptionist-team"
+      ? "/api/receptionist-turn"
+      : "/api/letta-code-stream";
   const voiceSession = new VoiceSession();
   return rendererFactory({
     http,
     conversationAgent: new StreamingLettaAgentAdapter({
       storage,
+      endpoint,
     }),
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
