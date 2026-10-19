@@ -1,0 +1,16 @@
+{
+  "name": "rol-finance-training-manual",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json --noEmit",
+    "test": "bun test tests/content.test.ts tests/evidence.test.ts ../../../the-factory/src/components/training-manual/session ../../../the-factory/src/components/training-manual/factory ../../../the-factory/src/components/workflow-inspector/session",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@types/bun": "^1.3.7",
+    "typescript": "^5.0.0"
+  }
+}

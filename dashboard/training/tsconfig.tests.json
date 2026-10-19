@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["bun"] },
+  "include": [
+    "build.ts",
+    "playwright.config.ts",
+    "tests/**/*.ts",
+    "../../../the-factory/src/components/training-manual/session/*.test.ts",
+    "../../../the-factory/src/components/training-manual/factory/*.test.ts",
+    "../../../the-factory/src/components/workflow-inspector/session/*.test.ts"
+  ]
+}

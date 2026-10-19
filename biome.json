@@ -3,7 +3,11 @@
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 },
   "linter": { "enabled": true, "rules": { "recommended": true } },
   "files": {
-    "experimentalScannerIgnores": ["vendor/**", "src/skills/custom/**"]
+    "experimentalScannerIgnores": [
+      "vendor/**",
+      "src/skills/custom/**",
+      "dashboard/training/dist/**"
+    ]
   },
   "overrides": [
     {
@@ -13,6 +17,11 @@
     },
     {
       "includes": ["src/skills/custom/**"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    },
+    {
+      "includes": ["dashboard/training/dist/**"],
       "linter": { "enabled": false },
       "formatter": { "enabled": false }
     }
