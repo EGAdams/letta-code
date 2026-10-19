@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from finance.expense_edit_model import ExpenseRecord
+from finance.expense_edit_version import record_version
 
 
 def records_as_json(records: Sequence[ExpenseRecord]) -> list[dict]:
@@ -11,6 +12,7 @@ def records_as_json(records: Sequence[ExpenseRecord]) -> list[dict]:
     return [
         {
             'id': record.id,
+            'version': record_version(record),
             'transaction_date': record.transaction_date,
             'total_amount': record.total_amount,
             'description': record.description,

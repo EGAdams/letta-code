@@ -58,6 +58,7 @@ def edit_stored_expense(deps: Collaborators, data, repository=None, namer=None,
     try:
         edit = ExpenseEdit(
             expense_id=expense_id,
+            expected_version=str(data.get('expected_version') or ''),
             merchant_name=data.get('merchant_name', ''),
             transaction_date=data.get('transaction_date', ''),
             total_amount=total_amount,

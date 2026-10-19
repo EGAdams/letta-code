@@ -152,6 +152,7 @@ class ExpenseEdit(ExpenseFieldRules):
     """
 
     expense_id: int
+    expected_version: str = ''
     category_id: Optional[int] = None
     #: Mirrors ExpenseRecord.distance_miles. Every caller must pass this
     #: explicitly (there is no "not supplied, leave unchanged" sentinel) --

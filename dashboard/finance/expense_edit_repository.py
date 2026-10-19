@@ -34,6 +34,7 @@ from finance.expense_edit_model import (
     describe_changes,
 )
 from finance.category_naming import ICategoryNamer
+from finance.expense_edit_version import record_version
 from finance.expense_receipt_sync import (
     ExpenseReceiptSynchronizer,
     IExpenseReceiptSynchronizer,
@@ -152,7 +153,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                 rows = cur.fetchall() or []
         return [self._to_record(row) for row in rows]
 
-    def _read_one(self, cur: Any, expense_id: int) -> tuple[ExpenseRecord, bool, dict]:
+    def _read_one(self, cur: Any, expense_id: int, *, lock: bool = False) -> tuple[ExpenseRecord, bool, dict]:
         """The row plus whether its stored amount is negative.
 
         ExpenseRecord carries the absolute amount -- that is what the operator
@@ -160,7 +161,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
         it, or an edit would silently flip a credit into a debit.
         """
         select_sql, _ = self._select_clause(cur)
-        cur.execute(f'SELECT {select_sql} FROM expenses WHERE id = %s',
+        cur.execute(f'SELECT {select_sql} FROM expenses WHERE id = %s' + (' FOR UPDATE' if lock else ''),
                     (expense_id,))
         row = cur.fetchone()
         if not row:
@@ -272,7 +273,12 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
         with self._connect() as cnx:
             with cnx.cursor() as cur:
-                before, was_negative, raw_row = self._read_one(cur, edit.expense_id)
+                if edit.expected_version:
+                    cur.execute('START TRANSACTION')
+                before, was_negative, raw_row = self._read_one(cur, edit.expense_id, lock=bool(edit.expected_version))
+                if edit.expected_version and record_version(before) != edit.expected_version:
+                    cnx.rollback()
+                    raise ValueError('This expense changed while it was open. Reload it before saving.')
                 changed = describe_changes(before, edit)
                 references = self._receipt_sync.synchronize(before, edit, changed)
                 if changed:

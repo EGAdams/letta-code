@@ -8,6 +8,7 @@ from finance.expense_edit_model import (
     linkage_warnings,
 )
 from finance.expense_record_serialization import records_as_json
+from finance.expense_edit_version import record_version
 from tests.expense_edit_test_fakes import edit, record
 
 
@@ -35,6 +36,7 @@ def test_records_as_json_uses_browser_contract_without_vendor_alias():
     payload = records_as_json([record()])
     assert payload == [{
         'id': 501,
+        'version': record_version(record()),
         'transaction_date': '2026-08-15',
         'total_amount': 12.34,
         'description': 'Kroger',
