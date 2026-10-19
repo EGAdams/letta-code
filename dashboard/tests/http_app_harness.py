@@ -120,6 +120,8 @@ def default_returns():
 #: symptom of forgetting is not a red test — it is a green one that took 30
 #: seconds and touched the network.
 DIRECT_SERVICES = {
+    'receptionist_work.http_api': ('state', 'execute', 'claim', 'training_search',
+                                  'training_categories', 'training_edit', 'document_path', 'trace'),
     'finance.category_creation': ('create_category_vendor',),
     'agent_thoughts': ('message_text',),
     'agents.conversation_management': ('context_payload', 'compact', 'reset_messages'),

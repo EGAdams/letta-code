@@ -18,6 +18,7 @@ import document_annotation
 import model_stats_mute
 import statement_review
 import toyota_service
+from receptionist_work import http_api as receptionist_work_api
 from agents import conversation_management
 from finance import add_expense_page
 from health import (
@@ -50,6 +51,26 @@ class GetRoutesMixin:
         path = parsed.path
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
+
+        if path == '/api/receptionist-work':
+            return self.json_response(receptionist_work_api.state())
+        if path == '/api/receptionist-work/trace':
+            try:
+                return self.json_response(receptionist_work_api.trace(query.get('run', [''])[0]))
+            except (ValueError, OSError) as exc:
+                return self.error_response(str(exc), 404)
+        if path == '/api/receptionist-training/expense-categories':
+            try:
+                return self.json_response(receptionist_work_api.training_categories())
+            except Exception as exc:
+                return self.error_response(str(exc), 503)
+        if path == '/api/receptionist-training/document':
+            try:
+                document = receptionist_work_api.document_path(query.get('path', [''])[0])
+                import mimetypes
+                return self.serve_file(str(document), mimetypes.guess_type(str(document))[0] or 'application/octet-stream')
+            except ValueError as exc:
+                return self.error_response(str(exc), 404)
 
         if path == '/api/terminal':
             return self.handle_terminal_ws(query)

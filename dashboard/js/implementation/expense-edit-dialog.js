@@ -518,6 +518,7 @@ export class ExpenseEditDialog {
   }
 
   async _save() {
+    let savedResult = null;
     if (this.selectedId === null) {
       this._setStatus("Pick a row from the search results first.");
       return;
@@ -542,6 +543,7 @@ export class ExpenseEditDialog {
       const result = readEditResponse(
         await this.http.postJSON("/api/expense-edit", payload),
       );
+      savedResult = result;
       this._setStatus(
         [describeEditResult(result), ...result.warnings].join(" "),
       );
@@ -569,6 +571,27 @@ export class ExpenseEditDialog {
       await this._saveNotes(this.selectedId, notes);
       this._loadedNotes = notes;
     }
+    return savedResult;
+  }
+
+  /** Public editor port: select an exact catalog ID, preserving other fields. */
+  selectCategory(categoryId) {
+    const name =
+      this.categoryPicker.nameForId(categoryId) ||
+      this._categoryNameForId(categoryId);
+    if (
+      !name ||
+      !Array.from(this.editCategorySelect.options).some(
+        (option) => option.value === name,
+      )
+    )
+      throw new Error("That exact category is not available in the editor.");
+    this.categoryPicker.setValue(name);
+  }
+
+  /** Public editor port: use the very same validation and Save Changes path. */
+  async saveChanges() {
+    return this._save();
   }
 
   /** Best-effort: the corrected expense itself is already saved either way. */

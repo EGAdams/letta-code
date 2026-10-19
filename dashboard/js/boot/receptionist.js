@@ -37,6 +37,7 @@ import {
   StreamingLettaAgentAdapter,
   VoiceSession,
 } from "../implementation/index.js";
+import { createOperationalConversation } from "../implementation/receptionist_work/dist/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
 
 export async function startReceptionist({
@@ -47,6 +48,7 @@ export async function startReceptionist({
   recorderFactoryBuilder = recorderFactoryForAgent,
   rendererFactory = (options) => new InputOptionsRenderer(options),
   listenerFactory = () => new BrowserSpeechRecognitionListener(),
+  workAgentFactory = createOperationalConversation,
 }) {
   let agentId;
   let voiceMediaBackend = "whisper";
@@ -67,12 +69,14 @@ export async function startReceptionist({
       ? "/api/receptionist-turn"
       : "/api/letta-code-stream";
   const voiceSession = new VoiceSession();
-  return rendererFactory({
+  const inner = new StreamingLettaAgentAdapter({ storage, endpoint });
+  const operations =
+    conversationBackend === "receptionist-team"
+      ? workAgentFactory({ inner, http, doc })
+      : null;
+  const rendered = rendererFactory({
     http,
-    conversationAgent: new StreamingLettaAgentAdapter({
-      storage,
-      endpoint,
-    }),
+    conversationAgent: operations?.agent || inner,
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
@@ -92,4 +96,12 @@ export async function startReceptionist({
     // other agent's message box.
     surfaceFactory: (opts) => new EditableDarkNoteSurface(opts),
   }).render("receptionist-box", agentId);
+  operations?.mount();
+  if (!operations) {
+    const notice = doc.createElement("p");
+    notice.textContent =
+      "Toyota is using the Letta conversation backend. Resumable workflow tools are unavailable until the receptionist service returns.";
+    doc.getElementById("receptionist-box")?.appendChild(notice);
+  }
+  return rendered;
 }

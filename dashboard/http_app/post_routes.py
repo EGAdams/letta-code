@@ -19,6 +19,7 @@ import codex_sync_status
 import model_stats_mute
 import statement_review
 import toyota_service
+from receptionist_work import http_api as receptionist_work_api
 from agent_thoughts import message_text as _msg_text
 from agents import conversation_management
 from chatgpt_provider_status import ChatGptProviderSwapRequest
@@ -52,6 +53,20 @@ class PostRoutesMixin:
             return self._handle_voice(raw)
 
         body = raw.decode('utf-8', errors='replace')
+
+        work_routes = {
+            '/api/receptionist-work': receptionist_work_api.execute,
+            '/api/receptionist-work/claim': receptionist_work_api.claim,
+            '/api/receptionist-training/expense-search': receptionist_work_api.training_search,
+            '/api/receptionist-training/expense-edit': receptionist_work_api.training_edit,
+        }
+        if path in work_routes:
+            try:
+                return self.json_response(work_routes[path](json.loads(body)))
+            except (ValueError, ValidationError) as exc:
+                return self.error_response(str(exc), 400)
+            except Exception as exc:
+                return self.error_response(str(exc), 503)
 
         if path == '/api/claude-log':
             try:

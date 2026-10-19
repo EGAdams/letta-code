@@ -18,6 +18,7 @@ import { abstractMethod } from "./not-implemented.js";
  * @property {string} agent            agent id the turn is addressed to
  * @property {string} text             what the user said or typed
  * @property {string|null} [conversationId]  resume key, when one is known
+ * @property {string} [requestId] stable identity for a retried operational turn
  *
  * @typedef {object} AgentEvent
  * @property {string} kind             one of AgentEventKind

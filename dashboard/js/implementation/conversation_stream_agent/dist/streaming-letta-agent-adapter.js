@@ -58,6 +58,7 @@ export class StreamingLettaAgentAdapter extends ConversationAgent {
           agent: turn.agent,
           text: turn.text,
           conversation_id: conversationId,
+          ...(turn.requestId ? { request_id: turn.requestId } : {}),
         }),
         signal: controller.signal,
       });
@@ -113,6 +114,16 @@ export class StreamingLettaAgentAdapter extends ConversationAgent {
               {
                 detail: { conversationId: nextConversationId },
               },
+            );
+            if (event) yield event;
+            continue;
+          }
+          if (raw.type === "tool_result" && raw.name === "receptionist_work") {
+            const event = agentEvent(
+              AgentEventKind.TOOL_RESULT,
+              "",
+              generationId,
+              { name: "receptionist_work", detail: { work: raw.work } },
             );
             if (event) yield event;
             continue;

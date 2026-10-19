@@ -1,0 +1,3 @@
+# The dashboard serves these generated browser modules directly.
+!dist/
+!dist/**

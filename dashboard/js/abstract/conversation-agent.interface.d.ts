@@ -2,6 +2,7 @@ export interface ConversationTurn {
   agent: string;
   text: string;
   conversationId?: string | null;
+  requestId?: string;
 }
 
 export interface AgentEvent {

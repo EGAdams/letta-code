@@ -55,6 +55,7 @@ class ToyotaTurnRequest(BaseModel):
     sidecar serves exactly one session and reports which one answered. They
     exist so the browser can post the same body shape it posts to
     ``/api/letta-code-stream`` and keep using one adapter.
+    ``request_id`` is forwarded unchanged for durable operation replay protection.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +63,7 @@ class ToyotaTurnRequest(BaseModel):
     text: str = Field(min_length=1, max_length=_MAX_TURN_CHARS)
     agent: str | None = None
     conversation_id: str | None = None
+    request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,100}$")
 
     @field_validator("text")
     @classmethod
@@ -99,6 +101,8 @@ def _translate(record: dict[str, Any]) -> ConversationStreamRecord | None:
         return _assistant_event(text) if text.strip() else None
     if kind == "result":
         return _result_event(record.get("session"))
+    if kind == "work" and isinstance(record.get("work"), dict):
+        return ConversationStreamRecord.provider_event({"type": "tool_result", "name": "receptionist_work", "work": record["work"]})
     if kind == "error":
         return ConversationStreamRecord.failure(text[-1000:] or "Toyota failed")
     return None
@@ -150,7 +154,7 @@ def stream_toyota_turn(
 ) -> Iterator[ConversationStreamRecord]:
     """Yield one turn's records, proxied from the sidecar as they arrive."""
 
-    body = json.dumps({"text": request.text}).encode("utf-8")
+    body = json.dumps({"text": request.text, **({"request_id": request.request_id} if request.request_id else {})}).encode("utf-8")
     http_request = urllib.request.Request(
         f"{TOYOTA_SERVICE_URL}/turn",
         data=body,

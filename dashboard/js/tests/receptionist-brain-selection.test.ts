@@ -31,6 +31,10 @@ async function bootWith(payload: Record<string, unknown>) {
       return { render: () => ({}) };
     },
     listenerFactory: () => ({}),
+    workAgentFactory: ({ inner }: { inner: unknown }) => ({
+      agent: inner,
+      mount() {},
+    }),
     doc,
   });
   return (rendererOptions?.conversationAgent as { endpoint: string }).endpoint;

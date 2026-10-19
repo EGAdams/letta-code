@@ -87,6 +87,11 @@ class TestTranslationMatchesTheBrowsersEnvelope:
         ])
         assert len(out) == 1
 
+    def test_work_is_a_non_speech_tool_result(self):
+        work = {'ok': True, 'state': {'environment': 'training'}}
+        out = _drain([{'kind': 'work', 'work': work}, {'kind': 'result', 'session': 'toyota'}])
+        assert out[0].event == {'type': 'tool_result', 'name': 'receptionist_work', 'work': work}
+
 
 class TestTheStreamAlwaysTerminates:
     """The browser's adapter waits for a terminal record; it must always get one."""
