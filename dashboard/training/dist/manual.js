@@ -1498,7 +1498,12 @@ var trainingManual = {
         {
           kind: "note",
           title: "Available now · synthetic training",
-          text: "Toyota can work with practice expense #900001, open its receipt and editor, apply a category you specify, and verify the stored value. This first lesson uses the separate training database. Real expense editing through the receptionist is still {to_be_implemented}."
+          text: "Toyota can work with practice expense #900001, open its receipt and editor, apply a category you specify, and verify the stored value. She can also build one practice report from the same training database, vendor spending by month, as a web page or a spreadsheet (CSV), and give you a link to it. This all uses the separate training database. She can also hand a request to the spreadsheet maker, which reads the real books (read-only) and builds a workbook for one category, or the built-in “Medical” group, with a comparison to last year, monthly pattern, and flags for possible duplicates and odd dates. Flags are for a person to review; nothing is changed. She can also summon her mechanic to diagnose or improve her own Python code (for example “implement the next voice enhancement for yourself”). The mechanic works on a sandbox copy, and a change is applied automatically only if every test passes, with no fewer tests than before and no protected files touched; she then restarts (offline about 30 seconds) and rolls back by herself if she does not come back. It cannot edit the dashboard. Real expense editing through the receptionist is still {to_be_implemented}."
+        },
+        {
+          kind: "note",
+          title: "Your next step",
+          text: "Practice the tax lesson once end to end (Practice chapter), then ask Toyota for the practice spreadsheet: “Give me a spreadsheet of category spend by month.” If she refuses or loops, note her exact words and use Check interrupted operation. Then try the real one: “Make a spreadsheet of Medical for 2025 and compare it with last year.” The next build step is checking the flagged rows by hand and adding more named groups."
         },
         {
           kind: "text",
@@ -1642,7 +1647,7 @@ just tax-issues`
         {
           kind: "placeholder",
           title: "Additional assignments",
-          text: "{to_be_implemented} — register and demonstrate another assignment, including switching away and restoring unfinished work."
+          text: "{to_be_implemented} — assignments beyond tax issues and the practice report, such as further real-books reports beyond the category spreadsheet, including switching away and restoring unfinished work."
         },
         {
           kind: "placeholder",
