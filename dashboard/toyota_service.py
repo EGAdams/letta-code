@@ -103,6 +103,9 @@ def _translate(record: dict[str, Any]) -> ConversationStreamRecord | None:
         return _result_event(record.get("session"))
     if kind == "work" and isinstance(record.get("work"), dict):
         return ConversationStreamRecord.provider_event({"type": "tool_result", "name": "receptionist_work", "work": record["work"]})
+    if kind == "handoff" and isinstance(record.get("handoff"), dict):
+        # Toyota asked the browser to open another agent's window.
+        return ConversationStreamRecord.provider_event({"type": "tool_result", "name": "agent_handoff", "handoff": record["handoff"]})
     if kind == "error":
         return ConversationStreamRecord.failure(text[-1000:] or "Toyota failed")
     return None

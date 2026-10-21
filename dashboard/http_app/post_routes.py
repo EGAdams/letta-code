@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import codex_sync_status
 import model_stats_mute
 import statement_review
+import mazda_service
 import toyota_service
 from receptionist_work import http_api as receptionist_work_api
 from agent_thoughts import message_text as _msg_text
@@ -702,6 +703,14 @@ class PostRoutesMixin:
             except ValidationError as e:
                 return self.error_response(f'invalid request: {e}', 400)
             return self.ndjson_response(toyota_service.stream_toyota_turn(request))
+        if path == '/api/mazda-turn':
+            # Mazda's agent page: her Letta CLI stream, with the LanceDB memory
+            # she shares with Toyota composed in front of each message.
+            try:
+                request = mazda_service.MazdaTurnRequest.model_validate_json(body)
+            except ValidationError as e:
+                return self.error_response(f'invalid request: {e}', 400)
+            return self.ndjson_response(mazda_service.stream_mazda_turn(request))
         if path == '/api/headless-prompt':
             # Headless mode: run letta -p with JSON output (no terminal UI noise)
             # Used by "Ask Mazda" to get clean, readable output without ANSI codes

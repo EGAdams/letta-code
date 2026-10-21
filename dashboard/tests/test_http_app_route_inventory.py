@@ -60,7 +60,7 @@ POST_ROUTES = [
     '/api/note-command-apply', '/api/note-command-complete', '/api/note-save',
     '/api/open-supporting-document', '/api/process-document', '/api/process-pdf',
     '/api/recategorize-expense', '/api/receipt-lookup', '/api/receipts-present',
-    '/api/receptionist-intent', '/api/receptionist-turn',
+    '/api/mazda-turn', '/api/receptionist-intent', '/api/receptionist-turn',
     '/api/reprocess-report', '/api/route-detect',
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',

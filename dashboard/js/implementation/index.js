@@ -51,6 +51,13 @@ export {
 } from "./agent-assignments-panel.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
+export {
+  AgentWindowHandoff,
+  BrowserAgentWindows,
+  FRONT_DESK_WINDOW,
+  MAZDA_AGENT_ID,
+  wakePhraseIntentPolicy,
+} from "./agent-window-handoff.js";
 export { AgentsRouterRenderer } from "./agents-router-renderer.js";
 export { BrowserSpeechRecognitionListener } from "./browser-speech-recognition-listener.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";

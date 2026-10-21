@@ -8,15 +8,21 @@
 import {
   AgentCardRenderer,
   AgentsRouterRenderer,
+  AgentWindowHandoff,
+  BrowserAgentWindows,
   BrowserSpeechRecognitionListener,
   ChatDetailRenderer,
+  EditableDarkNoteSurface,
   InputOptionsRenderer,
   LettaAgentAdapter,
+  MAZDA_AGENT_ID,
   SessionState,
   SpokenOutputPolicy,
   StreamDetailRenderer,
+  StreamingLettaAgentAdapter,
   TestChatAgentAdapter,
   VoiceSession,
+  wakePhraseIntentPolicy,
 } from "../implementation/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
 
@@ -28,6 +34,7 @@ export function createAgentDetailRenderers({
   getAgentManager,
   storage = globalThis.localStorage,
   doc = globalThis.document,
+  win = globalThis.window,
 }) {
   const streamRenderers = {
     "agent-detail-thoughts": new StreamDetailRenderer({
@@ -98,14 +105,40 @@ export function createAgentDetailRenderers({
     }).render(target, am.current.id);
   };
 
+  // Mazda gets Toyota's front-desk box: streaming replies through
+  // /api/mazda-turn (shared LanceDB recall + "put Toyota on the horn"), a
+  // Start Listening button answering to "Mazda, ...", and the dark note
+  // surface. Her listener outlives re-renders like the router's does.
+  let mazdaListener = null;
+  const mazdaOptions = () => {
+    mazdaListener ??= new BrowserSpeechRecognitionListener();
+    return {
+      listener: mazdaListener,
+      receptionistIntentPolicy: wakePhraseIntentPolicy("mazda"),
+      surfaceFactory: (opts) => new EditableDarkNoteSurface(opts),
+    };
+  };
+  const newConversationAgent = (id, target) =>
+    id === MAZDA_AGENT_ID
+      ? new AgentWindowHandoff(
+          new StreamingLettaAgentAdapter({
+            storage,
+            endpoint: "/api/mazda-turn",
+          }),
+          new BrowserAgentWindows({ win, doc, boxId: target }),
+        )
+      : new LettaAgentAdapter({ http, storage });
+
   const renderInputOptions = (am, target) => {
     const voiceSession = sessionFor(voiceSessions, am.current.id);
     let conversationAgent = conversationAgents.get(am.current.id);
     if (!conversationAgent) {
-      conversationAgent = new LettaAgentAdapter({ http, storage });
+      conversationAgent = newConversationAgent(am.current.id, target);
       conversationAgents.set(am.current.id, conversationAgent);
     }
+    const mazda = am.current.id === MAZDA_AGENT_ID ? mazdaOptions() : {};
     return new InputOptionsRenderer({
+      ...mazda,
       http,
       conversationAgent,
       voiceSession,

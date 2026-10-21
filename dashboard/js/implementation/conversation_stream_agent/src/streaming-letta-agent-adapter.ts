@@ -155,6 +155,16 @@ export class StreamingLettaAgentAdapter extends ConversationAgent {
             if (event) yield event;
             continue;
           }
+          if (raw.type === "tool_result" && raw.name === "agent_handoff") {
+            const event = agentEvent(
+              AgentEventKind.TOOL_RESULT,
+              "",
+              generationId,
+              { name: "agent_handoff", detail: { handoff: raw.handoff } },
+            );
+            if (event) yield event;
+            continue;
+          }
           const delta = assistantDelta(raw);
           if (!delta) continue;
           const event = agentEvent(

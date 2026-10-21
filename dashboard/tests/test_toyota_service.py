@@ -80,6 +80,16 @@ class TestTranslationMatchesTheBrowsersEnvelope:
         ])
         assert [r.event.get('type') for r in out] == ['result']
 
+    def test_a_handoff_becomes_an_agent_handoff_tool_result(self):
+        out = _drain([
+            {'kind': 'handoff', 'handoff': {'agent': 'mazda', 'name': 'Mazda'}},
+            {'kind': 'reply', 'text': 'Opening Mazda.'},
+            {'kind': 'result', 'session': 'toyota'},
+        ])
+        assert out[0].event == {
+            'type': 'tool_result', 'name': 'agent_handoff',
+            'handoff': {'agent': 'mazda', 'name': 'Mazda'}}
+
     def test_an_empty_reply_produces_no_speech(self):
         out = _drain([
             {'kind': 'reply', 'text': '   '},

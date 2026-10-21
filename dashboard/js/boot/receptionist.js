@@ -30,8 +30,11 @@
 // edge-tts playback — is identical either way.
 
 import {
+  AgentWindowHandoff,
+  BrowserAgentWindows,
   BrowserSpeechRecognitionListener,
   EditableDarkNoteSurface,
+  FRONT_DESK_WINDOW,
   InputOptionsRenderer,
   SpokenOutputPolicy,
   StreamingLettaAgentAdapter,
@@ -49,6 +52,7 @@ export async function startReceptionist({
   rendererFactory = (options) => new InputOptionsRenderer(options),
   listenerFactory = () => new BrowserSpeechRecognitionListener(),
   workAgentFactory = createOperationalConversation,
+  win = globalThis.window,
 }) {
   let agentId;
   let voiceMediaBackend = "whisper";
@@ -74,9 +78,17 @@ export async function startReceptionist({
     conversationBackend === "receptionist-team"
       ? workAgentFactory({ inner, http, doc })
       : null;
+  // "Toyota, bring up Mazda" opens Mazda's page in its own window. Naming this
+  // one lets Mazda put Toyota back on the horn without reloading her. A popup
+  // keeps the name it was opened with, so only an unnamed window claims it.
+  if (win && !win.name) win.name = FRONT_DESK_WINDOW;
+  const conversationAgent = new AgentWindowHandoff(
+    operations?.agent || inner,
+    new BrowserAgentWindows({ win, doc, boxId: "receptionist-box" }),
+  );
   const rendered = rendererFactory({
     http,
-    conversationAgent: operations?.agent || inner,
+    conversationAgent,
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
