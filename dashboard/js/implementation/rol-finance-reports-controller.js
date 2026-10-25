@@ -3,6 +3,14 @@ import { TextUtils } from "../abstract/text-utils.js";
 import { describePipelineStage } from "./document-pipeline-controller.js";
 
 /**
+ * The months-level tabs that each open one view of their own (Recent Report,
+ * the per-scanner tabs, ADW Generated) — hidden together while a month is
+ * open, and deactivated together whenever another tab takes over.
+ */
+const VIEW_TABS =
+  ".tab[data-recent-report], .tab[data-scanner], .tab[data-adw-generated]";
+
+/**
  * @typedef {Object} RolFinanceReport
  * @property {string} key - Stable id, e.g. "bank-5938-pdf1".
  * @property {string} label - Tab label, e.g. "Bank 5938 PDF 1".
@@ -64,6 +72,7 @@ export class RolFinanceReportsController {
     receiptLookupEndpoint = "/api/receipt-lookup",
     recentScansLimit = 5,
     recentReportUrl = "/recent_report.html",
+    adwGeneratedUrl = "/adw_generated/index.html",
     scannerReportUrl = "/scanner_report.html",
     scanners = [
       { key: "window", label: "Window Scanner" },
@@ -110,6 +119,7 @@ export class RolFinanceReportsController {
     this._receiptLookupEndpoint = receiptLookupEndpoint;
     this._recentScansLimit = recentScansLimit;
     this._recentReportUrl = recentReportUrl;
+    this._adwGeneratedUrl = adwGeneratedUrl;
     this._scannerReportUrl = scannerReportUrl;
     this._scanners = scanners;
     this._mazdaAgentId = mazdaAgentId;
@@ -143,6 +153,7 @@ export class RolFinanceReportsController {
       this.buildMonthsBackTab();
       this.buildRecentReportTab();
       this.buildScannerTabs();
+      this.buildAdwGeneratedTab();
       this.buildMonthTabs();
       this._monthsBuilt = true;
     }
@@ -171,13 +182,9 @@ export class RolFinanceReportsController {
    * back-to-ROL-Finance tab hide until backToMonths().
    */
   _enterMonthDetail() {
-    this._nav
-      .querySelectorAll(
-        ".tab[data-recent-report], .tab[data-scanner], .tab.month-tab",
-      )
-      .forEach((t) => {
-        t.classList.add("hidden");
-      });
+    this._nav.querySelectorAll(`${VIEW_TABS}, .tab.month-tab`).forEach((t) => {
+      t.classList.add("hidden");
+    });
     this._nav.querySelectorAll(".tab[data-months-back]").forEach((t) => {
       t.classList.remove("hidden");
     });
@@ -196,14 +203,10 @@ export class RolFinanceReportsController {
     this._nav.querySelectorAll(".tab[data-months-back]").forEach((t) => {
       t.classList.add("hidden");
     });
-    this._nav
-      .querySelectorAll(
-        ".tab[data-recent-report], .tab[data-scanner], .tab.month-tab",
-      )
-      .forEach((t) => {
-        t.classList.remove("hidden");
-        t.classList.remove("active");
-      });
+    this._nav.querySelectorAll(`${VIEW_TABS}, .tab.month-tab`).forEach((t) => {
+      t.classList.remove("hidden");
+      t.classList.remove("active");
+    });
     const staticBack = this._nav.querySelector("#btn-back-rol-finance-reports");
     if (staticBack) staticBack.classList.remove("hidden");
     this._activeMonthKey = null;
@@ -248,16 +251,7 @@ export class RolFinanceReportsController {
    * the scanner's latest scan.
    */
   openScannerReport(key) {
-    this._nav
-      .querySelectorAll(
-        ".tab[data-month-key], .tab[data-report-key], .tab[data-recent-report]",
-      )
-      .forEach((t) => {
-        t.classList.remove("active");
-      });
-    this._nav.querySelectorAll(".tab[data-scanner]").forEach((t) => {
-      t.classList.toggle("active", t.dataset.scanner === key);
-    });
+    this._activateViewTab(`.tab[data-scanner="${key}"]`);
 
     const viewId = `rol-finance-report-scanner-${key}`;
     const stale = this._viewsContainer.querySelector(`#${viewId}`);
@@ -306,16 +300,7 @@ export class RolFinanceReportsController {
    * and a fresh iframe makes the server re-resolve "most recent".
    */
   openRecentReport() {
-    this._nav
-      .querySelectorAll(
-        ".tab[data-month-key], .tab[data-report-key], .tab[data-scanner]",
-      )
-      .forEach((t) => {
-        t.classList.remove("active");
-      });
-    this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
-      t.classList.add("active");
-    });
+    this._activateViewTab(".tab[data-recent-report]");
 
     const stale = this._viewsContainer.querySelector(
       "#rol-finance-report-recent",
@@ -336,6 +321,57 @@ export class RolFinanceReportsController {
     }
     this._viewsContainer.appendChild(view);
     this._activateView("rol-finance-report-recent");
+  }
+
+  /**
+   * Inject the "ADW Generated" tab (once), after the scanner tabs: the list
+   * of pages agent_blocks' ADWs have written, newest first.
+   */
+  buildAdwGeneratedTab() {
+    const tab = this._doc.createElement("button");
+    tab.type = "button";
+    tab.className = "tab adw-generated-tab";
+    tab.dataset.adwGenerated = "1";
+    tab.textContent = "ADW Generated";
+    this._nav.appendChild(tab);
+  }
+
+  /**
+   * Open the ADW Generated view: an iframe over the index.html the ADW keeps
+   * beside its pages (served from /adw_generated/). Shown whole — it's a
+   * list of links, not a statement report — and rebuilt on every open so a
+   * page written since the last visit is on top.
+   */
+  openAdwGenerated() {
+    this._activateViewTab(".tab[data-adw-generated]");
+
+    const stale = this._viewsContainer.querySelector(
+      "#rol-finance-report-adw-generated",
+    );
+    if (stale) stale.remove();
+    const view = this._doc.createElement("section");
+    view.id = "rol-finance-report-adw-generated";
+    view.className = "view";
+    view.insertAdjacentHTML(
+      "beforeend",
+      `<iframe class="plan-frame" src="${TextUtils.esc(this._adwGeneratedUrl)}"></iframe>`,
+    );
+    this._viewsContainer.appendChild(view);
+    this._activateView("rol-finance-report-adw-generated");
+  }
+
+  /** Make `selector` the only active tab among the month, document and view tabs. */
+  _activateViewTab(selector) {
+    this._nav
+      .querySelectorAll(
+        `.tab[data-month-key], .tab[data-report-key], ${VIEW_TABS}`,
+      )
+      .forEach((t) => {
+        t.classList.remove("active");
+      });
+    this._nav.querySelectorAll(selector).forEach((t) => {
+      t.classList.add("active");
+    });
   }
 
   /**
@@ -927,11 +963,9 @@ export class RolFinanceReportsController {
     this._nav.querySelectorAll(".tab[data-month-key]").forEach((t) => {
       t.classList.toggle("active", t.dataset.monthKey === monthKey);
     });
-    this._nav
-      .querySelectorAll(".tab[data-recent-report], .tab[data-scanner]")
-      .forEach((t) => {
-        t.classList.remove("active");
-      });
+    this._nav.querySelectorAll(VIEW_TABS).forEach((t) => {
+      t.classList.remove("active");
+    });
     this._enterMonthDetail();
 
     let reports = this._reportsByMonth.get(monthKey);
@@ -1301,11 +1335,9 @@ export class RolFinanceReportsController {
       this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
         t.classList.toggle("active", t === tab);
       });
-      this._nav
-        .querySelectorAll(".tab[data-recent-report], .tab[data-scanner]")
-        .forEach((t) => {
-          t.classList.remove("active");
-        });
+      this._nav.querySelectorAll(VIEW_TABS).forEach((t) => {
+        t.classList.remove("active");
+      });
     }
     this.openReport(key);
   }

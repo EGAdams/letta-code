@@ -1354,6 +1354,44 @@ describe("RolFinanceReportsController", () => {
     expect(recentTab.classList.contains("active")).toBe(true);
   });
 
+  test("ADW Generated tab sits after the scanners and opens the ADW's link list", async () => {
+    const ctx = setup([]);
+    await ctx.rf.openReports();
+
+    const tabs = ctx.nav.children.map((t) => t.textContent);
+    expect(tabs.indexOf("ADW Generated")).toBe(
+      tabs.indexOf("Freezer Scanner") + 1,
+    );
+    expect(tabs.indexOf("ADW Generated")).toBeLessThan(
+      tabs.indexOf("January 2025"),
+    );
+
+    ctx.rf.openAdwGenerated();
+    expect(ctx.activated.at(-1)).toBe("rol-finance-report-adw-generated");
+    const view = ctx.viewsContainer.querySelector(
+      "#rol-finance-report-adw-generated",
+    );
+    expect(view.innerHTML).toContain("/adw_generated/index.html");
+    const adwTab = ctx.nav.querySelector(".tab[data-adw-generated]");
+    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
+    expect(adwTab.classList.contains("active")).toBe(true);
+    expect(recentTab.classList.contains("active")).toBe(false);
+
+    // Re-opening rebuilds rather than stacking a second view.
+    ctx.rf.openAdwGenerated();
+    expect(
+      ctx.viewsContainer.querySelectorAll("#rol-finance-report-adw-generated")
+        .length,
+    ).toBe(1);
+
+    // A month hides it with the other months-level tabs; Back restores it.
+    await ctx.rf.openMonth("jan-2025");
+    expect(adwTab.classList.contains("hidden")).toBe(true);
+    expect(adwTab.classList.contains("active")).toBe(false);
+    ctx.rf.backToMonths();
+    expect(adwTab.classList.contains("hidden")).toBe(false);
+  });
+
   test("loadScannerReportInto gives Scanners-page aliases the same live report view", () => {
     const ctx = setup([]);
     const iframe = ctx.doc.createElement("iframe");

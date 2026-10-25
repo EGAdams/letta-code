@@ -64,6 +64,10 @@ export function bindFinanceNav({ doc, http, nav, viewNav, RF, AM, scanners }) {
       RF.openScannerReport(tab.dataset.scanner);
       return;
     }
+    if (tab.dataset.adwGenerated) {
+      RF.openAdwGenerated();
+      return;
+    }
     if (tab.dataset.monthKey) {
       RF.openMonth(tab.dataset.monthKey).then(() => RF.refreshStatus());
       return;

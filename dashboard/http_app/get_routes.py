@@ -36,13 +36,16 @@ from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win1
 from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
-from paths import HERE, REPO_ROOT
+from paths import ADW_GENERATED_DIR, HERE, REPO_ROOT
 from intake.statuses import ScannerIntakeStatusResponse
 from voice import config as voice_config
 
 from . import services as srv
 from .registry import current_ports
 from .static_files import resolve_static_asset
+
+#: URL prefix for ADW-generated report pages (see paths.ADW_GENERATED_DIR).
+ADW_GENERATED_URL_PREFIX = '/adw_generated'
 
 
 class GetRoutesMixin:
@@ -709,6 +712,32 @@ class GetRoutesMixin:
                 }.get(ext, 'application/octet-stream')
                 return self.serve_file(document_path, ctype)
             self.send_error(404)
+            return
+
+        # ADW-generated pages: one directory, contained like the static
+        # fallthrough below, never cached so a new run shows on the next open.
+        if path == ADW_GENERATED_URL_PREFIX or path.startswith(ADW_GENERATED_URL_PREFIX + '/'):
+            rel = path[len(ADW_GENERATED_URL_PREFIX):].lstrip('/') or 'index.html'
+            asset = resolve_static_asset(rel, (ADW_GENERATED_DIR,))
+            if asset:
+                with open(asset, 'rb') as f:
+                    data = f.read()
+            elif rel == 'index.html':
+                data = (b'<!doctype html><meta charset="utf-8"><body style="font-family:'
+                        b'system-ui,sans-serif;padding:24px"><h1>ADW Generated</h1>'
+                        b'<p>No ADW-generated reports yet.</p></body>')
+            else:
+                self.send_error(404)
+                return
+            ctype = ('text/html; charset=utf-8'
+                     if rel.lower().endswith(('.html', '.htm'))
+                     else 'application/octet-stream')
+            self.send_response(200)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         if path.startswith('/'):

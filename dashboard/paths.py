@@ -28,3 +28,10 @@ LETTA_CODE_BUN = os.environ.get(
 #: The rol_finances checkout the finance pipeline lives in. Not part of this
 #: repo -- the dashboard reads its .env, its tools, and its own virtualenv.
 ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
+
+#: Pages written by agent_blocks' adw_interface_category_web_page.py, plus the
+#: index.html it keeps of them (newest first). Served under /adw_generated/ as
+#: ROL Finance -> Reports -> ADW Generated. Lives outside this repo.
+ADW_GENERATED_DIR = os.environ.get(
+    'ADW_GENERATED_DIR',
+    os.path.expanduser('~/agent_blocks/adws/adw_data/web_pages'))
