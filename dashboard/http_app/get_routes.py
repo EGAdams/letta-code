@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 # reached through `srv`. Modules rather than names, so a test still monkeypatches
 # the owner (rule 3) and a runtime rebind is still seen — `from x import f` would
 # snapshot f here and quietly neuter both.
+import adw_prompts
 import codex_sync_status
 import document_annotation
 import model_stats_mute
@@ -437,6 +438,12 @@ class GetRoutesMixin:
         # full-screen "cannot continue" modal while a halt is active.
         if path == '/api/intake-halt':
             return self.json_response(srv.read_intake_halt())
+
+        # Yes/No questions an agent_blocks ADW is waiting on -- AdwPromptDialog
+        # polls the bare route; the asking ADW reads its answer back by ?id=.
+        if path == '/api/adw-prompt':
+            return self.json_response(
+                adw_prompts.read_prompt(query.get('id', [''])[0]))
 
         # Statements quarantined in bank_statements/_needs_review/ — the Scanner
         # screen polls this and pops a dialog for each one.

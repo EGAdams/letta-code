@@ -34,6 +34,7 @@ import { createStatusHome } from "./boot/status-home.js";
 import { createViewNavigator } from "./boot/view-navigator.js";
 import {
   ActivePoller,
+  AdwPromptDialog,
   CodeChangeAlert,
   DomChatGptProviderAccountController,
   DomTabFactory,
@@ -154,6 +155,9 @@ new CodeChangeAlert({ http }).start();
 // Mirrors the server-side halt in process_scanned_document().
 new VisionHaltAlert({ http }).start();
 new IntakeHaltAlert({ http }).start();
+// Yes/No questions an agent_blocks ADW is waiting on (polls /api/adw-prompt
+// every 5s); the answer is POSTed back for the ADW to act on.
+new AdwPromptDialog({ http }).start();
 
 /* ─────────────────────────  Go  ───────────────────────── */
 

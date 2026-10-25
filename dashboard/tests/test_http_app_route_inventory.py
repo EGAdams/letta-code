@@ -21,7 +21,7 @@ from tests.http_app_harness import DashboardClient, ServiceRecorder, start_serve
 # deleted by mistake.
 # --------------------------------------------------------------------------
 GET_ROUTES = [
-    '/add_expense.html',
+    '/add_expense.html', '/api/adw-prompt',
     '/api/agent-activity', '/api/agent-card', '/api/agent-context', '/api/agent-health',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
     '/api/agents', '/api/chatgpt-provider-account-status',
@@ -43,7 +43,8 @@ GET_ROUTES = [
 ]
 
 POST_ROUTES = [
-    '/api/add-expense-entry',
+    '/api/add-expense-entry', '/api/adw-prompt', '/api/adw-prompt-answer',
+    '/api/adw-prompt-withdraw',
     '/api/agent-compact', '/api/agent-model', '/api/agent-oauth-account',
     '/api/agent-reset-messages', '/api/agent-voice',
     '/api/claude-sdk-account',
@@ -141,9 +142,9 @@ class TestMethodSeparation:
 
     @pytest.mark.parametrize('path', ['/api/agent-model', '/api/agent-voice',
                                       '/api/intake-halt', '/api/mazda-mode',
-                                      '/api/agent-oauth-account'])
+                                      '/api/agent-oauth-account', '/api/adw-prompt'])
     def test_dual_method_routes_answer_both(self, live, stubbed, path):
-        """These five exist on both verbs; a refactor must not collapse them."""
+        """These six exist on both verbs; a refactor must not collapse them."""
         assert live.get(path).status != 404
         assert live.post(path, {}).status != 404
 

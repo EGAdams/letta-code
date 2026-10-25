@@ -10,6 +10,9 @@ recent_report.json
 
 # Runtime state for the fail-loud intake-halt alert (active fault + ack flag).
 intake_halt.json
+# Runtime state for the ADW Yes/No prompt dialog (adw_prompts.py).
+adw_prompts.json
+adw_prompts.json.tmp
 category_undo_journal.json
 category_undo_journal.json.tmp
 .cache/

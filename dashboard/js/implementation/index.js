@@ -43,6 +43,7 @@ export {
   VoiceSession,
 } from "../abstract/voice-session.js";
 export { ActivePoller } from "./active-poller.js";
+export { AdwPromptDialog } from "./adw-prompt-dialog.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export {
   AgentAssignmentsController,

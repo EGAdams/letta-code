@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 # (round 12). Modules, not names, wherever the thing is behaviour: a test then
 # monkeypatches the owning module and this ladder sees it. Request models and
 # ValidationError are types, so they come across directly.
+import adw_prompts
 import codex_sync_status
 import model_stats_mute
 import statement_review
@@ -444,6 +445,22 @@ class PostRoutesMixin:
 
         if path == '/api/intake-halt-ack':
             return self.json_response(srv.acknowledge_intake_halt())
+
+        if path in ('/api/adw-prompt', '/api/adw-prompt-answer',
+                    '/api/adw-prompt-withdraw'):
+            try:
+                data = json.loads(body or '{}')
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            handler = {
+                '/api/adw-prompt': adw_prompts.create_prompt,
+                '/api/adw-prompt-answer': adw_prompts.answer_prompt,
+                '/api/adw-prompt-withdraw': adw_prompts.withdraw_prompt,
+            }[path]
+            result = handler(data)
+            if not result.get('ok'):
+                return self.error_response(result.get('error', 'refused'), 400)
+            return self.json_response(result)
 
         if path == '/api/route-detect':
             try:
