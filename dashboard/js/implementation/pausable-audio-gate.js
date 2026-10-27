@@ -14,8 +14,14 @@
  * holds the rest of the reply behind it — nothing is skipped or lost.
  *
  * The synthesizer's own cancel() calls `audio.pause()` on a clip it is
- * dropping. For a held clip that rejects the deferred play() so the
- * synthesizer's in-flight speak() settles instead of hanging forever.
+ * dropping. That rejects the clip's outstanding play() so the synthesizer's
+ * in-flight speak() settles instead of hanging forever.
+ *
+ * The play() the synthesizer sees belongs to the gate, not the browser. A
+ * Pause pressed while a clip is still loading makes the browser reject its
+ * play() ("interrupted by a call to pause()"); the synthesizer would read
+ * that as a failure and drop the reply. The gate absorbs that rejection and
+ * keeps waiting for Play instead.
  *
  * Starts paused by default so Toyota never talks before someone asks her to.
  */
@@ -31,7 +37,7 @@ export class PausableAudioGate {
   } = {}) {
     this._paused = paused;
     this._createAudio = createAudio;
-    this._current = null; // { audio, realPlay, realPause, held }
+    this._current = null; // { audio, realPlay, realPause, waiter, attempts, ended }
     this._listeners = new Set();
     this.audioFactory = (url) => this._wrap(this._createAudio(url));
   }
@@ -50,7 +56,7 @@ export class PausableAudioGate {
     if (this._paused) return;
     this._paused = true;
     const cur = this._current;
-    if (cur && !cur.held) {
+    if (cur && !cur.ended) {
       try {
         cur.realPause();
       } catch {
@@ -64,17 +70,11 @@ export class PausableAudioGate {
     if (!this._paused) return;
     this._paused = false;
     const cur = this._current;
-    if (cur?.held) {
-      const { resolve, reject } = cur.held;
-      cur.held = null;
-      Promise.resolve()
-        .then(() => cur.realPlay())
-        .then(resolve, reject);
-    } else if (cur && !cur.ended) {
+    if (cur?.waiter) this._start(cur);
+    else if (cur && !cur.ended)
       Promise.resolve()
         .then(() => cur.realPlay())
         .catch(() => {});
-    }
     this._emit();
   }
 
@@ -93,12 +93,34 @@ export class PausableAudioGate {
     }
   }
 
+  /** Ask the browser to play; settle the synthesizer's play() on success. */
+  _start(entry) {
+    const attempt = ++entry.attempts;
+    Promise.resolve()
+      .then(() => entry.realPlay())
+      .then(
+        () => {
+          const waiter = entry.waiter;
+          entry.waiter = null;
+          waiter?.resolve();
+        },
+        (err) => {
+          // Our own Pause interrupted the load: keep waiting for Play.
+          if (attempt !== entry.attempts || this._paused) return;
+          const waiter = entry.waiter;
+          entry.waiter = null;
+          waiter?.reject(err);
+        },
+      );
+  }
+
   _wrap(audio) {
     const entry = {
       audio,
       realPlay: audio.play.bind(audio),
       realPause: audio.pause.bind(audio),
-      held: null,
+      waiter: null,
+      attempts: 0,
       ended: false,
     };
     this._current = entry;
@@ -106,21 +128,18 @@ export class PausableAudioGate {
       entry.ended = true;
       if (this._current === entry) this._current = null;
     });
-    audio.play = () => {
-      if (!this._paused) return entry.realPlay();
-      return new Promise((resolve, reject) => {
-        entry.held = { resolve, reject };
+    audio.play = () =>
+      new Promise((resolve, reject) => {
+        entry.waiter = { resolve, reject };
+        if (!this._paused) this._start(entry);
       });
-    };
     // The synthesizer pauses a clip only when it is dropping it.
     audio.pause = () => {
       if (this._current === entry) this._current = null;
-      if (entry.held) {
-        const { reject } = entry.held;
-        entry.held = null;
-        reject(new Error("speech cancelled while paused"));
-        return;
-      }
+      entry.attempts += 1; // ignore any start still in flight
+      const waiter = entry.waiter;
+      entry.waiter = null;
+      waiter?.reject(new Error("speech cancelled"));
       entry.realPause();
     };
     return audio;

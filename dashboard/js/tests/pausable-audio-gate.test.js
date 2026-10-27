@@ -68,6 +68,59 @@ describe("PausableAudioGate", () => {
     expect(audio.plays).toBe(0);
   });
 
+  test("Pause while a clip is still loading waits for Play instead of failing", async () => {
+    // Chrome rejects a pending play() when pause() lands before it starts.
+    const audio = fakeAudio();
+    let abortLoad = null;
+    audio.play = () => {
+      audio.plays += 1;
+      if (audio.plays > 1) return Promise.resolve();
+      return new Promise((_resolve, reject) => {
+        abortLoad = () =>
+          reject(
+            Object.assign(new Error("interrupted"), { name: "AbortError" }),
+          );
+      });
+    };
+    audio.pause = () => {
+      audio.pauses += 1;
+      abortLoad?.();
+    };
+    const gate = new PausableAudioGate({
+      paused: false,
+      createAudio: () => audio,
+    });
+    const el = gate.audioFactory("blob:x");
+    let outcome = "waiting";
+    el.play().then(
+      () => {
+        outcome = "started";
+      },
+      () => {
+        outcome = "failed";
+      },
+    );
+    await tick();
+    gate.pause();
+    await tick();
+    expect(outcome).toBe("waiting");
+    gate.resume();
+    await tick();
+    expect(audio.plays).toBe(2);
+    expect(outcome).toBe("started");
+  });
+
+  test("a real playback failure still reaches the synthesizer", async () => {
+    const audio = fakeAudio();
+    audio.play = () => Promise.reject(new Error("decode failed"));
+    const gate = new PausableAudioGate({
+      paused: false,
+      createAudio: () => audio,
+    });
+    const el = gate.audioFactory("blob:x");
+    await expect(el.play()).rejects.toThrow("decode failed");
+  });
+
   test("a finished clip is not replayed on resume", async () => {
     const audio = fakeAudio();
     const gate = new PausableAudioGate({
