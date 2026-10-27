@@ -141,6 +141,11 @@
 .manual-entry-field select.expense-category-select { max-width:none; text-overflow:ellipsis; }
 .manual-entry-field select.expense-category-select,
 .manual-entry-field select.expense-category-select option { font-family:Georgia,serif; font-size:12px; white-space:pre; }
+/* The open list is styled from the focused select, and 98.css restyles
+   `select:focus option` -- repeat the font there so it cannot win. */
+.manual-entry-field select.expense-category-select:focus,
+.manual-entry-field select.expense-category-select:focus option,
+.manual-entry-field select.expense-category-select:active option { font-family:Georgia,serif !important; font-size:12px !important; }
 select.expense-category-select,
 select.expense-category-select option {
     font-family: "Courier New", Courier, monospace;

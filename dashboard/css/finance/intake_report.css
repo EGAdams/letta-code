@@ -2,7 +2,7 @@
    Scan / Last Freezer Scan tabs). Rendered by finance/intake_report_page.py,
    which links this file instead of inlining CSS. */
 
-@import url("./manual-entry.css?v=20261027bb");
+@import url("./manual-entry.css?v=20261027cb");
 @import url("./mazda-mode.css?v=20260903");
 
 /* Left padding cut to 10px (from the vendor-default-ish 24px kept on the
