@@ -9,6 +9,7 @@ import {
   LISTEN_IDLE_BG,
 } from "../implementation/detail-renderers.js";
 import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
+import { PausableAudioGate } from "../implementation/pausable-audio-gate.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 class FakeListener {
@@ -37,7 +38,11 @@ class FakeListener {
   }
 }
 
-function setup({ policy, speech = { supported: false } } = {}) {
+function setup({
+  policy,
+  speech = { supported: false },
+  playbackControl = null,
+} = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "receptionist-box";
@@ -74,6 +79,7 @@ function setup({ policy, speech = { supported: false } } = {}) {
     storage: { getItem: () => null, setItem: () => {} },
     recorderFactory,
     listener,
+    playbackControl,
     receptionistIntentPolicy: policy,
   }).render("receptionist-box", "toyota-id");
   return { container, listener, posts, api, voiceSession };
@@ -104,6 +110,33 @@ function playingSpeech() {
 }
 
 describe("Toyota receptionist renderer", () => {
+  test("Pause/Play sits right under Start, wakes as blinking Play, toggles", () => {
+    const gate = new PausableAudioGate({ createAudio: () => ({}) });
+    const ctx = setup({ playbackControl: gate });
+    const buttons = ctx.container.querySelectorAll("button");
+    const labels = buttons.map((b) => b.textContent);
+    const start = labels.indexOf("Start");
+    expect(labels[start + 1]).toBe("Play");
+    expect(labels[start + 2]).toBe("Auto Send");
+    const btn = buttons[start + 1];
+    expect(btn.classList.contains("paused")).toBe(true);
+    btn.click();
+    expect(gate.paused).toBe(false);
+    expect(btn.textContent).toBe("Pause");
+    expect(btn.classList.contains("paused")).toBe(false);
+    btn.click();
+    expect(btn.textContent).toBe("Play");
+  });
+
+  test("no Pause/Play button without a playback control", () => {
+    const ctx = setup();
+    const labels = ctx.container
+      .querySelectorAll("button")
+      .map((b) => b.textContent);
+    expect(labels).not.toContain("Play");
+    expect(labels).not.toContain("Pause");
+  });
+
   test("new recognized words interrupt an answer already playing", async () => {
     const audio = playingSpeech();
     const ctx = setup({ speech: audio.speech });

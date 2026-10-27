@@ -736,6 +736,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     storage = globalThis.localStorage,
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
     listener = null,
+    playbackControl = null,
     receptionistIntentPolicy = null,
     surfaceFactory = (opts) => new EditableTextareaSurface(opts),
     coordinatorFactory = (deps) => new ConversationCoordinator(deps),
@@ -771,6 +772,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._storage = storage;
     this._recorderFactory = recorderFactory;
     this._listener = listener;
+    this._playbackControl = playbackControl;
     this._receptionistIntentPolicy = receptionistIntentPolicy;
     this._surfaceFactory = surfaceFactory;
     this._coordinatorFactory = coordinatorFactory;
@@ -863,6 +865,26 @@ export class InputOptionsRenderer extends DetailRenderer {
     recInd.append(recLed, recText);
     voiceRow.append(startBtn, recInd);
 
+    // Pause/Play for the spoken reply — only when a PausableAudioGate is
+    // injected (Toyota's box). Solid yellow "Pause" while she may talk;
+    // blinking yellow "Play" while held. Same full width as Start.
+    let pauseBtn = null;
+    if (this._playbackControl) {
+      const gate = this._playbackControl;
+      pauseBtn = this._el("button", { className: "speech-pause-btn" });
+      pauseBtn.style.cssText = `${bs}background:#f5c400;color:#222;font-weight:700;`;
+      const renderPause = (paused) => {
+        pauseBtn.textContent = paused ? "Play" : "Pause";
+        pauseBtn.classList.toggle("paused", paused);
+        pauseBtn.title = paused
+          ? "Toyota's voice is paused — press to hear her from where she stopped"
+          : "Pause Toyota's voice; Play picks up where she left off";
+      };
+      renderPause(gate.paused);
+      gate.onChange(renderPause);
+      pauseBtn.addEventListener("click", () => gate.toggle());
+    }
+
     // Continuous browser-native listening — only rendered when a
     // ContinuousListener is injected (Toyota's receptionist box; see
     // dashboard-boot.js). Off by default: the user starts/stops it
@@ -915,6 +937,7 @@ export class InputOptionsRenderer extends DetailRenderer {
         saveNoteBtn,
         editBtn,
         voiceRow,
+        pauseBtn,
         autoSendBtn,
         copyBtn,
         statusEl,

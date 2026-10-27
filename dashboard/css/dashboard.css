@@ -2415,3 +2415,20 @@ body.startup-loading #provider-token-sync-modal button {
 .mtr-detail summary {
   cursor: pointer;
 }
+
+/* Toyota's Pause/Play (PausableAudioGate): solid yellow Pause while she may
+   speak, blinking yellow Play while her voice is held. */
+.speech-pause-btn {
+  background: #f5c400;
+  color: #222;
+  font-weight: 700;
+}
+.speech-pause-btn.paused {
+  animation: speech-play-blink 1s step-end infinite;
+}
+@keyframes speech-play-blink {
+  50% {
+    background: #7a6200;
+    color: #fff;
+  }
+}

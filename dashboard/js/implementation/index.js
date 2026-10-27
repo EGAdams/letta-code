@@ -116,6 +116,7 @@ export {
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 export { ModelStatsHealthMonitor } from "./model-stats-health-monitor.js";
 export { NoteCommandPanelRenderer } from "./note-command-panel.js";
+export { PausableAudioGate } from "./pausable-audio-gate.js";
 export {
   buildPrinterRepairRequest,
   PrinterRepairController,

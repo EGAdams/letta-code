@@ -33,9 +33,11 @@ import {
   AgentWindowHandoff,
   BrowserAgentWindows,
   BrowserSpeechRecognitionListener,
+  EdgeTtsSpeechSynthesizer,
   EditableDarkNoteSurface,
   FRONT_DESK_WINDOW,
   InputOptionsRenderer,
+  PausableAudioGate,
   SpokenOutputPolicy,
   StreamingLettaAgentAdapter,
   VoiceSession,
@@ -53,6 +55,12 @@ export async function startReceptionist({
   listenerFactory = () => new BrowserSpeechRecognitionListener(),
   workAgentFactory = createOperationalConversation,
   win = globalThis.window,
+  // Toyota wakes up paused (blinking Play) so she never startles anyone.
+  // She gets her own synthesizer so the gate holds only her voice, not the
+  // other agents' pages that share `speech`.
+  playbackControl = new PausableAudioGate({ paused: true }),
+  speechFactory = (gate) =>
+    new EdgeTtsSpeechSynthesizer(win, { audioFactory: gate.audioFactory }),
 }) {
   let agentId;
   let voiceMediaBackend = "whisper";
@@ -91,7 +99,8 @@ export async function startReceptionist({
     conversationAgent,
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
-    speech,
+    speech: playbackControl ? speechFactory(playbackControl) : speech,
+    playbackControl,
     agentName: "Toyota",
     agentId,
     storage,
