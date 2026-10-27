@@ -137,6 +137,8 @@
     font-family:"Courier New",Courier,monospace;
 }
 /* Keep ID, category name and ancestry columns aligned in native menus. */
+/* Labels carry ID + ancestry, so the 320px field cap cuts them off. */
+.manual-entry-field select.expense-category-select { max-width:none; text-overflow:ellipsis; }
 select.expense-category-select,
 select.expense-category-select option {
     font-family: "Courier New", Courier, monospace;
