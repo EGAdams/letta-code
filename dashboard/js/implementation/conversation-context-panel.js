@@ -14,6 +14,15 @@
  * It re-disables after a successful Clear, so the next Clear needs its own
  * fresh Save.
  *
+ * Clicking Clear also pops a small fixed-position tip next to the button,
+ * styled like the yellow flagged-row tooltip in the ADW-generated report
+ * pages (adw_interface_category_web_page.py's `.tip`/`.flagged` — a dark,
+ * rounded, shadowed box, here tinted the same warning-yellow): it carries
+ * whatever `showStatus` says about that click (clearing / cleared / error)
+ * right at the place the operator is looking, and auto-hides after a few
+ * seconds. Purely additive — the status line keeps being the system of
+ * record, this is just an in-context echo of it.
+ *
  *   el        → element factory, e.g. `this._el.bind(this)`
  *   http      → HttpClient
  *   agentId   → the Letta agent id this panel manages
@@ -55,7 +64,26 @@ export function buildConversationContextRow({
   clearBtn.style.cssText = `${bs}background:#adb5bd;`;
   btnRow.append(saveBtn, clearBtn);
 
-  row.append(label, shell, btnRow);
+  const popup = el("div", { className: "cc-popup" });
+  popup.style.cssText =
+    "position:fixed;z-index:20;max-width:260px;padding:8px 11px;border-radius:6px;" +
+    "background:#fff3a3;color:#1d2330;font-size:0.8rem;" +
+    "box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none;display:none;";
+
+  row.append(label, shell, btnRow, popup);
+
+  let popupTimer = null;
+  const showPopup = (text) => {
+    popup.textContent = text;
+    popup.style.display = "block";
+    const rect = clearBtn.getBoundingClientRect?.() || { left: 0, bottom: 0 };
+    popup.style.left = `${Math.max(8, rect.left)}px`;
+    popup.style.top = `${rect.bottom + 8}px`;
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => {
+      popup.style.display = "none";
+    }, 3000);
+  };
 
   const setClearEnabled = (enabled) => {
     clearBtn.disabled = !enabled;
@@ -113,20 +141,26 @@ export function buildConversationContextRow({
     if (!ok) return;
     clearBtn.disabled = true;
     showStatus("Clearing conversation…");
+    showPopup("Clearing conversation…");
     try {
       const r = await http.postJSON("/api/agent-reset-messages", {
         agent: agentId,
       });
       if (!r?.ok) {
-        showStatus(r?.error || "Could not clear the conversation.", true);
+        const msg = r?.error || "Could not clear the conversation.";
+        showStatus(msg, true);
+        showPopup(msg);
         setClearEnabled(true);
         return;
       }
       showStatus("Conversation cleared.");
+      showPopup("Conversation cleared.");
       setClearEnabled(false);
       refresh();
     } catch (e) {
-      showStatus(`Could not clear the conversation: ${e.message}`, true);
+      const msg = `Could not clear the conversation: ${e.message}`;
+      showStatus(msg, true);
+      showPopup(msg);
       setClearEnabled(true);
     }
   });
