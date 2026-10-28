@@ -65,6 +65,11 @@ def health(timeout: float = 3) -> dict[str, Any]:
     return BRIDGE.health(timeout=timeout)
 
 
+def compact() -> dict[str, Any]:
+    """The Input Options "Compact Conversation" button. Never raises."""
+    return BRIDGE.compact()
+
+
 def preferred_backend(probe=health) -> dict[str, Any]:
     """Which brain Toyota's box should use on this page load.
 

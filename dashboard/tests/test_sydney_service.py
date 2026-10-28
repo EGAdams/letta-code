@@ -99,6 +99,33 @@ def test_both_turn_routes_go_through_the_one_route_table():
     assert set(RECEPTIONIST_TURN_ROUTES) == {'/api/receptionist-turn', '/api/sydney-turn'}
 
 
+def test_compact_asks_her_own_sidecar_and_passes_its_reply_back():
+    opener, seen = _recording_opener({'ok': True, 'session': 'sydney--ctx1', 'summary': 'Hi.'})
+    assert sydney_service.BRIDGE.compact(opener=opener) == {
+        'ok': True, 'session': 'sydney--ctx1', 'summary': 'Hi.'}
+    assert seen == [f'{sydney_service.SYDNEY_SERVICE_URL}/compact']
+
+
+def test_compact_against_a_dead_sidecar_names_her_unit():
+    def opener(*a, **k):
+        raise urllib.error.URLError('Connection refused')
+
+    out = sydney_service.BRIDGE.compact(opener=opener)
+    assert out['ok'] is False and 'sydney-receptionist' in out['error']
+
+
+def test_the_compact_route_reaches_each_receptionist():
+    from http_app.post_routes import RECEPTIONIST_COMPACTS
+    original = (toyota_service.compact, sydney_service.compact)
+    toyota_service.compact = lambda: {'ok': True, 'who': 'toyota'}
+    sydney_service.compact = lambda: {'ok': True, 'who': 'sydney'}
+    try:
+        assert {k: f()['who'] for k, f in RECEPTIONIST_COMPACTS.items()} == {
+            'toyota': 'toyota', 'sydney': 'sydney'}
+    finally:
+        toyota_service.compact, sydney_service.compact = original
+
+
 def _listing(listed):
     deps = agent_list.Collaborators(
         letta_agents=[], get_letta_id=lambda cfg: None, cache={},

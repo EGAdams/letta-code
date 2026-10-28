@@ -24,7 +24,8 @@ import mazda_receptionist_service
 import mazda_service
 import sydney_service
 import toyota_service
-from receptionist_sidecar import IReceptionistTurnStream, SidecarTurnRequest
+from receptionist_sidecar import (IReceptionistTurnStream, ReceptionistCompactRequest,
+                                  SidecarTurnRequest)
 from receptionist_work import http_api as receptionist_work_api
 from agent_thoughts import message_text as _msg_text
 from agents import conversation_management
@@ -57,6 +58,13 @@ from .registry import current_ports
 RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistTurnStream] = {
     '/api/receptionist-turn': lambda request: toyota_service.stream_toyota_turn(request),
     '/api/sydney-turn': lambda request: sydney_service.stream_sydney_turn(request),
+}
+
+# The Input Options "Compact Conversation" button, per receptionist: her own
+# sidecar model summarizes the conversation (see SidecarBridge.compact).
+RECEPTIONIST_COMPACTS = {
+    'toyota': lambda: toyota_service.compact(),
+    'sydney': lambda: sydney_service.compact(),
 }
 
 
@@ -640,6 +648,13 @@ class PostRoutesMixin:
                 return self.json_response(conversation_management.compact(data.get('agent', '')))
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/receptionist-compact':
+            try:
+                request = ReceptionistCompactRequest.model_validate_json(body)
+            except ValidationError as e:
+                return self.error_response(f'invalid request: {e}', 400)
+            return self.json_response(RECEPTIONIST_COMPACTS[request.agent]())
 
         if path == '/api/agent-reset-messages':
             try:

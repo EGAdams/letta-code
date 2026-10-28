@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { buildConversationContextRow } from "../implementation/conversation-context-panel.js";
 import { FakeDocument } from "./_fake-dom.js";
 
-function build({ getJSON, postJSON, confirm = () => true } = {}) {
+function build({
+  getJSON,
+  postJSON,
+  confirm = () => true,
+  receptionist = null,
+} = {}) {
   const doc = new FakeDocument();
   const statuses = [];
   const http = {
@@ -15,6 +20,7 @@ function build({ getJSON, postJSON, confirm = () => true } = {}) {
     agentId: "toyota-id",
     showStatus: (msg, isError) => statuses.push({ msg, isError }),
     confirm,
+    receptionist,
   });
   const fill = row.querySelector(".win98-progress-fill");
   const [saveBtn, clearBtn] = row.querySelectorAll("button");
@@ -122,5 +128,48 @@ describe("buildConversationContextRow", () => {
     expect(ctx.row.querySelector(".cc-label").textContent).toBe(
       "Context: unavailable",
     );
+  });
+
+  test("a receptionist desk gets a yellow Compact Conversation button", () => {
+    const ctx = build({ receptionist: "sydney" });
+    expect(ctx.clearBtn.textContent).toBe("Compact Conversation");
+    expect(ctx.clearBtn.disabled).toBe(false);
+    expect(ctx.clearBtn.style.cssText).toContain("background:#ffc107");
+    expect(ctx.clearBtn.style.cssText).toContain("color:#000");
+  });
+
+  test("Compact posts her name to the receptionist route, no confirm", async () => {
+    const posts = [];
+    let asked = false;
+    const ctx = build({
+      receptionist: "toyota",
+      confirm: () => {
+        asked = true;
+        return false;
+      },
+      postJSON: async (url, body) => {
+        posts.push({ url, body });
+        return { ok: true, turns_before: 12 };
+      },
+    });
+    ctx.clearBtn.click();
+    await flush();
+    expect(asked).toBe(false);
+    expect(posts).toEqual([
+      { url: "/api/receptionist-compact", body: { agent: "toyota" } },
+    ]);
+    expect(ctx.statuses.at(-1).msg).toContain("12");
+    expect(ctx.clearBtn.disabled).toBe(false);
+  });
+
+  test("a failed Compact reports the error and stays usable", async () => {
+    const ctx = build({
+      receptionist: "sydney",
+      postJSON: async () => ({ ok: false, error: "sidecar down" }),
+    });
+    ctx.clearBtn.click();
+    await flush();
+    expect(ctx.statuses.at(-1)).toEqual({ msg: "sidecar down", isError: true });
+    expect(ctx.clearBtn.disabled).toBe(false);
   });
 });

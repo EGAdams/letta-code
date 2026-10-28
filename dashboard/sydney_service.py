@@ -67,6 +67,11 @@ def health(timeout: float = 3) -> dict[str, Any]:
     return BRIDGE.health(timeout=timeout)
 
 
+def compact() -> dict[str, Any]:
+    """The Input Options "Compact Conversation" button. Never raises."""
+    return BRIDGE.compact()
+
+
 def stream_sydney_turn(
     request: SidecarTurnRequest,
     *,

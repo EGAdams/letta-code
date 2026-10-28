@@ -737,6 +737,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
     listener = null,
     playbackControl = null,
+    receptionist = null,
     receptionistIntentPolicy = null,
     surfaceFactory = (opts) => new EditableTextareaSurface(opts),
     coordinatorFactory = (deps) => new ConversationCoordinator(deps),
@@ -773,6 +774,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._recorderFactory = recorderFactory;
     this._listener = listener;
     this._playbackControl = playbackControl;
+    this._receptionist = receptionist;
     this._receptionistIntentPolicy = receptionistIntentPolicy;
     this._surfaceFactory = surfaceFactory;
     this._coordinatorFactory = coordinatorFactory;
@@ -1072,6 +1074,7 @@ export class InputOptionsRenderer extends DetailRenderer {
         http: this._http,
         agentId: id,
         showStatus,
+        receptionist: this._receptionist,
       });
     col.insertBefore(contextRow, voiceSelectRow.nextSibling);
 

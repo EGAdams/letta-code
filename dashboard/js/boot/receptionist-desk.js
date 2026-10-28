@@ -92,6 +92,8 @@ export class ReceptionistDesk {
       }),
       speech: this._speech,
       playbackControl: this.playbackControl,
+      // Her sidecar's name: Compact Conversation goes to her own model.
+      receptionist: this._desk.name.toLowerCase(),
       agentName: this._desk.name,
       agentId: this._desk.agentId,
       storage: this._storage,

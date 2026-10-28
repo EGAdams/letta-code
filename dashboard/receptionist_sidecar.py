@@ -27,7 +27,7 @@ import re
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -71,6 +71,14 @@ class SidecarTurnRequest(BaseModel):
         return value
 
 
+class ReceptionistCompactRequest(BaseModel):
+    """The Input Options "Compact Conversation" button, for one receptionist."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    agent: Literal['toyota', 'sydney']
+
+
 class IReceptionistSidecar(Protocol):
     """What a profile module needs from one receptionist's sidecar.
 
@@ -85,6 +93,8 @@ class IReceptionistSidecar(Protocol):
     def health(self, timeout: float = 3) -> dict[str, Any]: ...
 
     def preferred_backend(self, probe=None) -> dict[str, Any]: ...
+
+    def compact(self, timeout: float = 120, opener=urllib.request.urlopen) -> dict[str, Any]: ...
 
     def stream(
         self,
@@ -187,6 +197,25 @@ class SidecarBridge:
             return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
         if not isinstance(payload, dict):
             return {'ok': False, 'error': 'malformed health payload'}
+        return payload
+
+    def compact(self, timeout: float = 120, opener=urllib.request.urlopen) -> dict[str, Any]:
+        """Have her model summarize the conversation so the next turn starts
+        from that summary instead of the full history. Never raises; a failure
+        is ``{'ok': False}`` and her session is left as it was."""
+        request = urllib.request.Request(
+            f'{self.base_url}/compact', data=b'{}',
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with opener(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+        except urllib.error.URLError as exc:
+            return {'ok': False, 'error': f"{self.name}'s receptionist service isn't reachable "
+                                          f'({exc.reason}). Start {self.unit} in Server Management.'}
+        except Exception as exc:
+            return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+        if not isinstance(payload, dict):
+            return {'ok': False, 'error': 'malformed compact reply'}
         return payload
 
     def preferred_backend(self, probe=None) -> dict[str, Any]:

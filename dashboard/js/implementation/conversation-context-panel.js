@@ -14,6 +14,12 @@
  * It re-disables after a successful Clear, so the next Clear needs its own
  * fresh Save.
  *
+ * A receptionist desk (Toyota, Sydney) passes `receptionist`, and the second
+ * button is instead a yellow "Compact Conversation": always enabled, it posts
+ * /api/receptionist-compact, where her own sidecar model summarizes the
+ * conversation and her next turn starts from that summary. Nothing is wiped,
+ * so it needs neither a prior Save nor a confirm.
+ *
  * Clicking Clear also pops a small fixed-position tip next to the button,
  * styled like the yellow flagged-row tooltip in the ADW-generated report
  * pages (adw_interface_category_web_page.py's `.tip`/`.flagged` — a dark,
@@ -28,6 +34,7 @@
  *   agentId   → the Letta agent id this panel manages
  *   showStatus(msg, isError) → status-line callback
  *   confirm   → injectable window.confirm, for tests
+ *   receptionist → "toyota" | "sydney" for a receptionist desk, else null
  *
  * Returns { row, refresh } — the caller places `row` in the DOM and may call
  * `refresh()` after anything else changes the conversation (e.g. a Send).
@@ -38,6 +45,7 @@ export function buildConversationContextRow({
   agentId,
   showStatus,
   confirm = (message) => globalThis.confirm(message),
+  receptionist = null,
 }) {
   const row = el("div", { className: "conversation-context-panel" });
   row.style.cssText = "display:flex;flex-direction:column;gap:6px;";
@@ -56,12 +64,20 @@ export function buildConversationContextRow({
     "flex:1;padding:8px;font-size:0.85rem;border-radius:4px;border:0;cursor:pointer;color:#fff;";
   const saveBtn = el("button", { textContent: "Save to Memory" });
   saveBtn.style.cssText = `${bs}background:#6c757d;`;
-  const clearBtn = el("button", {
-    textContent: "Clear Conversation",
-    disabled: true,
-    title: "Save to Memory first.",
-  });
-  clearBtn.style.cssText = `${bs}background:#adb5bd;`;
+  const clearBtn = receptionist
+    ? el("button", {
+        className: "cc-compact-btn",
+        textContent: "Compact Conversation",
+        title: "Summarize the conversation so far to free up context.",
+      })
+    : el("button", {
+        textContent: "Clear Conversation",
+        disabled: true,
+        title: "Save to Memory first.",
+      });
+  clearBtn.style.cssText = receptionist
+    ? `${bs}background:#ffc107;color:#000;font-weight:700;`
+    : `${bs}background:#adb5bd;`;
   btnRow.append(saveBtn, clearBtn);
 
   const popup = el("div", { className: "cc-popup" });
@@ -133,8 +149,34 @@ export function buildConversationContextRow({
     }
   });
 
+  const compact = async () => {
+    clearBtn.disabled = true;
+    showStatus("Compacting conversation…");
+    showPopup("Compacting conversation…");
+    try {
+      const r = await http.postJSON(
+        "/api/receptionist-compact",
+        { agent: receptionist },
+        { timeout: 130000 },
+      );
+      const msg = r?.ok
+        ? `Conversation compacted (${r.turns_before ?? 0} messages summarized).`
+        : r?.error || "Could not compact the conversation.";
+      showStatus(msg, !r?.ok);
+      showPopup(msg);
+      if (r?.ok) refresh();
+    } catch (e) {
+      const msg = `Could not compact the conversation: ${e.message}`;
+      showStatus(msg, true);
+      showPopup(msg);
+    } finally {
+      clearBtn.disabled = false;
+    }
+  };
+
   clearBtn.addEventListener("click", async () => {
     if (clearBtn.disabled) return;
+    if (receptionist) return compact();
     const ok = confirm(
       "This clears the conversation history and cannot be undone. Continue?",
     );

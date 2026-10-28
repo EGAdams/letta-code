@@ -141,8 +141,8 @@ DIRECT_SERVICES = {
     # get a real {'status': ...} entry back
     'ssh_connection_mute': ('is_muted', 'set_muted'),
     'letta_code.streaming': ('stream_letta_code_message',),
-    'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health'),
-    'sydney_service': ('stream_sydney_turn', 'health'),
+    'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health', 'compact'),
+    'sydney_service': ('stream_sydney_turn', 'health', 'compact'),
     'mazda_receptionist_service': ('stream_turn', 'stream_mazda_receptionist_turn',
                                    'preferred_backend', 'health'),
     'monitoring.log_files': ('log_activity_health',),
