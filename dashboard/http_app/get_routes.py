@@ -19,6 +19,7 @@ import document_annotation
 import model_stats_mute
 import ssh_connection_mute
 import statement_review
+import receptionist_alerts
 import toyota_service
 from receptionist_work import http_api as receptionist_work_api
 from agents import conversation_management
@@ -57,6 +58,8 @@ class GetRoutesMixin:
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
 
+        if path == '/api/receptionist-alerts':
+            return self.json_response(receptionist_alerts.collect())
         if path == '/api/receptionist-work':
             return self.json_response(receptionist_work_api.state())
         if path == '/api/receptionist-work/trace':

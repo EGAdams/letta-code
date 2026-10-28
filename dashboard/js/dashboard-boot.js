@@ -42,6 +42,7 @@ import {
   FetchHttpClient,
   IntakeHaltAlert,
   PrinterRepairController,
+  ReceptionistFailureAlert,
   VisionHaltAlert,
   XtermTerminalLauncher,
 } from "./implementation/index.js";
@@ -155,6 +156,9 @@ new CodeChangeAlert({ http }).start();
 // Mirrors the server-side halt in process_scanned_document().
 new VisionHaltAlert({ http }).start();
 new IntakeHaltAlert({ http }).start();
+// A task Toyota or Sydney sent another agent that FAILED (polls
+// /api/receptionist-alerts every 10s): red card, spoken once, notified.
+new ReceptionistFailureAlert({ http, speech }).start();
 // Yes/No questions an agent_blocks ADW is waiting on (polls /api/adw-prompt
 // every 5s); the answer is POSTed back for the ADW to act on.
 new AdwPromptDialog({ http }).start();

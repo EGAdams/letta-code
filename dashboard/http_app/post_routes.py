@@ -21,10 +21,11 @@ import model_stats_mute
 import ssh_connection_mute
 import statement_review
 import mazda_receptionist_service
+import receptionist_alerts
 import mazda_service
 import sydney_service
 import toyota_service
-from receptionist_sidecar import (IReceptionistTurnStream, ReceptionistCompactRequest,
+from receptionist_sidecar import (IReceptionistTurnStream, ReceptionistAlertAckRequest, ReceptionistCompactRequest,
                                   SidecarTurnRequest)
 from receptionist_work import http_api as receptionist_work_api
 from agent_thoughts import message_text as _msg_text
@@ -655,6 +656,13 @@ class PostRoutesMixin:
             except ValidationError as e:
                 return self.error_response(f'invalid request: {e}', 400)
             return self.json_response(RECEPTIONIST_COMPACTS[request.agent]())
+
+        if path == '/api/receptionist-alerts/ack':
+            try:
+                request = ReceptionistAlertAckRequest.model_validate_json(body)
+            except ValidationError as e:
+                return self.error_response(f'invalid request: {e}', 400)
+            return self.json_response(receptionist_alerts.acknowledge(request))
 
         if path == '/api/agent-reset-messages':
             try:

@@ -44,6 +44,7 @@ import {
   NoteCommandPanelRenderer,
   PrinterRepairController,
   ReadOnlyNoteSurface,
+  ReceptionistFailureAlert,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
   ServerActionController,
@@ -2447,6 +2448,7 @@ new CodeChangeAlert({ http }).start();
 // Mirrors the server-side halt in process_scanned_document().
 new VisionHaltAlert({ http }).start();
 new IntakeHaltAlert({ http }).start();
+new ReceptionistFailureAlert({ http, speech: Speech }).start();
 
 /* =====================  Scanners  =====================
    ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`

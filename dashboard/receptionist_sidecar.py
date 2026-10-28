@@ -79,6 +79,15 @@ class ReceptionistCompactRequest(BaseModel):
     agent: Literal['toyota', 'sydney']
 
 
+class ReceptionistAlertAckRequest(BaseModel):
+    """"Got it" on one failure alert: her sidecar marks it heard."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    agent: Literal['toyota', 'sydney']
+    ids: list[str] | None = Field(default=None, max_length=200)
+
+
 class IReceptionistSidecar(Protocol):
     """What a profile module needs from one receptionist's sidecar.
 
@@ -95,6 +104,11 @@ class IReceptionistSidecar(Protocol):
     def preferred_backend(self, probe=None) -> dict[str, Any]: ...
 
     def compact(self, timeout: float = 120, opener=urllib.request.urlopen) -> dict[str, Any]: ...
+
+    def alerts(self, timeout: float = 5, opener=urllib.request.urlopen) -> dict[str, Any]: ...
+
+    def acknowledge_alerts(self, ids: list[str] | None, timeout: float = 5,
+                           opener=urllib.request.urlopen) -> dict[str, Any]: ...
 
     def stream(
         self,
@@ -217,6 +231,37 @@ class SidecarBridge:
         if not isinstance(payload, dict):
             return {'ok': False, 'error': 'malformed compact reply'}
         return payload
+
+    def alerts(self, timeout: float = 5, opener=urllib.request.urlopen) -> dict[str, Any]:
+        """Tasks she sent through the post office that failed and nobody has
+        heard about yet. Never raises; an unreachable sidecar is
+        ``{'ok': False, 'reachable': False}`` so the caller can tell "down"
+        (Server Management already shows that) from "cannot read its alerts"."""
+        try:
+            with opener(f'{self.base_url}/alerts', timeout=timeout) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+        except urllib.error.URLError as exc:
+            return {'ok': False, 'reachable': False, 'alerts': [], 'error': f'{exc.reason}'}
+        except Exception as exc:
+            return {'ok': False, 'reachable': True, 'alerts': [], 'error': f'{type(exc).__name__}: {exc}'}
+        if not isinstance(payload, dict) or not isinstance(payload.get('alerts'), list):
+            return {'ok': False, 'reachable': True, 'alerts': [], 'error': 'malformed alerts reply'}
+        return {**payload, 'reachable': True}
+
+    def acknowledge_alerts(self, ids: list[str] | None, timeout: float = 5,
+                           opener=urllib.request.urlopen) -> dict[str, Any]:
+        """Mark alerts heard. Never raises; a failure is ``{'ok': False}``."""
+        request = urllib.request.Request(
+            f'{self.base_url}/alerts/ack', data=json.dumps({'ids': ids}).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with opener(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+        except urllib.error.URLError as exc:
+            return {'ok': False, 'error': f"{self.name}'s receptionist service isn't reachable ({exc.reason})."}
+        except Exception as exc:
+            return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+        return payload if isinstance(payload, dict) else {'ok': False, 'error': 'malformed ack reply'}
 
     def preferred_backend(self, probe=None) -> dict[str, Any]:
         """Which brain her box should use on this page load.

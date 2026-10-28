@@ -122,6 +122,7 @@ export {
   buildPrinterRepairRequest,
   PrinterRepairController,
 } from "./printer-repair-controller.js";
+export { ReceptionistFailureAlert } from "./receptionist-failure-alert.js";
 export { RolFinanceReportsController } from "./rol-finance-reports-controller.js";
 export { ScannerDiagnosticsController } from "./scanner-diagnostics-controller.js";
 export { SequentialSpeechQueue } from "./sequential-speech-queue.js";
