@@ -19,6 +19,11 @@ export function createOperationalConversation({
 }) {
   const root = doc.createElement("section");
   root.id = "receptionist-work";
+  // Hidden rather than omitted: the iframe inside still needs to be attached
+  // to the document to navigate when Toyota executes a browser command, so
+  // the panel is kept in the DOM and just visually removed from the front
+  // page (everything from "Toyota's work — synthetic training" down).
+  root.hidden = true;
   const browser = new DashboardBrowserWorkspace(root, doc);
   const workflows = new DashboardWorkflows(http, newBrowserRequestId());
   const agent = new OperationalConversationAgent(
