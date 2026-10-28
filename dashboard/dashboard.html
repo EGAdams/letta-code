@@ -60,6 +60,7 @@
       <button type="button" class="tab" data-nav="status" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="status" data-target="model-stats" id="btn-model-stats">Model Stats</button>
       <button type="button" class="tab" data-nav="status" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
+      <button type="button" class="tab" data-nav="status" data-target="wsl-interop" id="btn-wsl-interop">WSLInterop Entry</button>
     </nav>
 
     <!-- Agent management sub-nav -->
@@ -203,6 +204,15 @@
       <h2>PC Monitor</h2>
       <p class="srv-note">RAM, hard-drive, and network usage per machine. A tab blinking yellow means one of that PC's metrics crossed its alert threshold.</p>
       <div id="pc-monitor-body"><p class="am-dim">Select a PC&hellip;</p></div>
+    </section>
+
+    <section id="wsl-interop" class="view">
+      <h2>WSLInterop Entry</h2>
+      <p class="srv-note">Whether each WSL machine can still run Windows programs.
+        Checked every 30 seconds. Red means the <code>WSLInterop</code> binfmt entry
+        is gone, and every Windows <code>.exe</code> on that machine will fail with
+        <code>Exec format error</code> until somebody follows the steps below.</p>
+      <div id="wsl-interop-body"><p class="am-dim">Checking&hellip;</p></div>
     </section>
 
     <section id="agent-management" class="view">

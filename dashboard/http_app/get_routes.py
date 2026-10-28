@@ -36,6 +36,7 @@ from model_stats import assignments as model_stats_assignments
 from model_stats import reader as model_stats_reader
 from model_stats.sources import MODEL_STAT_SOURCES
 from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win10_node
+from monitoring import wsl_interop_entry
 from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
@@ -237,6 +238,9 @@ class GetRoutesMixin:
                 {'key': k, 'label': v.label, 'note': v.note}
                 for k, v in PC_MONITORS.items()
             ])
+
+        if path == '/api/wsl-interop':
+            return self.json_response(wsl_interop_entry.wsl_interop_payload())
 
         if path == '/api/pc-metrics':
             return self.json_response(pc_metrics.pc_metrics(query.get('pc', [''])[0]))

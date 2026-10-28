@@ -147,6 +147,7 @@ DIRECT_SERVICES = {
                                    'preferred_backend', 'health'),
     'monitoring.log_files': ('log_activity_health',),
     'monitoring.pc_metrics': ('pc_metrics',),
+    'monitoring.wsl_interop_entry': ('wsl_interop_payload',),
     'monitoring.server_lifecycle': ('clear_server_starting',
                                     'track_down_duration'),
     'monitoring.ssh_checks': ('cached_ssh_health', 'connection_log_rows',

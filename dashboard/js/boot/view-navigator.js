@@ -76,7 +76,7 @@ export function createViewNavigator({ doc = document, nav }) {
     target.classList.add("active");
   }
 
-  // Server Management / SSH Connections / Model Stats / PC Monitor are all
+  // Server Management / SSH Connections / Model Stats / PC Monitor / WSLInterop Entry are all
   // nested one level under the System Status tab, so their own "Back" buttons
   // land one level up in nav.status (not all the way out to nav.main/home).
   function returnToStatus(statusTarget) {
@@ -120,6 +120,7 @@ export function createViewNavigator({ doc = document, nav }) {
       "btn-ssh-connections",
       "btn-model-stats",
       "btn-pc-monitor",
+      "btn-wsl-interop",
     ]
       .map((id) => doc.getElementById(id))
       .filter(Boolean);
@@ -135,7 +136,7 @@ export function createViewNavigator({ doc = document, nav }) {
         tab.classList.contains("tab-alert"),
     );
     const allKnown =
-      children.length === 4 &&
+      children.length === 5 &&
       children.every((tab) =>
         ["server-up", "server-concern", "server-down", "server-starting"].some(
           (name) => tab.classList.contains(name),

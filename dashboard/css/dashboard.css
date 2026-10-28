@@ -2376,6 +2376,10 @@ body.startup-loading #provider-token-sync-modal button {
 .mtr-card.mtr-bad {
   border-left-color: #e53935;
 }
+/* WSLInterop Entry's instructions: reference text, not a status. */
+.mtr-card.mtr-info {
+  border-left-color: #90a4ae;
+}
 .mtr-card h3 {
   margin: 0 0 8px;
 }

@@ -13,6 +13,7 @@ export function bindMainNav({
   SSHM,
   MS,
   PCM,
+  WI,
   statusHome,
 }) {
   const agentBlocksFrame = doc.getElementById("agent-block-frame");
@@ -171,6 +172,12 @@ export function bindMainNav({
           nav.pcMonitor.classList.remove("hidden");
           viewNav.activateView("pc-monitor");
           PCM.open();
+          return;
+        }
+
+        if (target === "wsl-interop") {
+          viewNav.activateView("wsl-interop");
+          WI.open();
         }
       });
     });

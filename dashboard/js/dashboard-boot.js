@@ -32,6 +32,7 @@ import { createSshManager } from "./boot/ssh-manager.js";
 import { createStartupChecks } from "./boot/startup-checks.js";
 import { createStatusHome } from "./boot/status-home.js";
 import { createViewNavigator } from "./boot/view-navigator.js";
+import { createWslInterop } from "./boot/wsl-interop.js";
 import {
   ActivePoller,
   AdwPromptDialog,
@@ -113,6 +114,7 @@ const providerAccountMonitor = new DomChatGptProviderAccountController({
 });
 providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
+const WI = createWslInterop({ doc, http, viewNav });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
 const statusHome = createStatusHome({ doc, http });
 statusHome.bind();
@@ -138,6 +140,7 @@ bindNavigation({
   SSHM,
   MS,
   PCM,
+  WI,
   RF,
   scanners,
   statusHome,
