@@ -8,10 +8,24 @@ import hashlib
 import os
 import re
 import subprocess
+import threading
+from uuid import uuid4
+from weakref import WeakValueDictionary
 from abc import ABC, abstractmethod
 
 
 _VOICE_NAME_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2,}-[A-Za-z0-9]+$")
+_CACHE_LOCKS = WeakValueDictionary()
+_CACHE_LOCKS_GUARD = threading.Lock()
+
+
+def _cache_lock(path: str):
+    with _CACHE_LOCKS_GUARD:
+        lock = _CACHE_LOCKS.get(path)
+        if lock is None:
+            lock = threading.Lock()
+            _CACHE_LOCKS[path] = lock
+        return lock
 
 
 class SpeechSynthesisStrategy(ABC):
@@ -59,6 +73,12 @@ class EdgeTtsSynthesizer(SpeechSynthesisStrategy):
             }
 
         output_path = cache_path(self.cache_dir, text, selected_voice)
+        # Synthesizer instances are created per request. Share the lock across
+        # instances so concurrent sentence preparation cannot duplicate work.
+        with _cache_lock(output_path):
+            return self._synthesize_locked(text, selected_voice, output_path)
+
+    def _synthesize_locked(self, text: str, selected_voice: str, output_path: str) -> dict:
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             return {"ok": True, "path": output_path, "cached": True}
 
@@ -68,7 +88,7 @@ class EdgeTtsSynthesizer(SpeechSynthesisStrategy):
                 "error": f"edge-tts binary not found: {self.binary_path}",
             }
         os.makedirs(self.cache_dir, exist_ok=True)
-        temporary_path = f"{output_path}.tmp{os.getpid()}"
+        temporary_path = f"{output_path}.tmp{uuid4().hex}"
         try:
             process = self._run(
                 [
@@ -85,11 +105,13 @@ class EdgeTtsSynthesizer(SpeechSynthesisStrategy):
                 timeout=self.timeout_sec,
             )
         except subprocess.TimeoutExpired:
+            self._remove_temporary(temporary_path)
             return {
                 "ok": False,
                 "error": f"edge-tts timed out after {self.timeout_sec}s",
             }
         except Exception as exc:
+            self._remove_temporary(temporary_path)
             return {"ok": False, "error": f"edge-tts failed to run: {exc}"}
 
         if (
@@ -106,3 +128,10 @@ class EdgeTtsSynthesizer(SpeechSynthesisStrategy):
 
         os.replace(temporary_path, output_path)
         return {"ok": True, "path": output_path, "cached": False}
+
+    @staticmethod
+    def _remove_temporary(path: str) -> None:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass

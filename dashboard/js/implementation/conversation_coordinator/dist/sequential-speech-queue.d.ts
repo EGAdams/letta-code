@@ -11,6 +11,7 @@ interface PlaybackToken {
 interface SpeechSynthesizerPort {
   readonly lastError?: string | null;
   speak(text: string, agentName?: string | null): PlaybackToken | null;
+  prefetch?(text: string, agentName?: string | null): void;
   cancel?(): void;
 }
 interface PlaybackSessionPort {
@@ -51,3 +52,4 @@ export declare class SequentialSpeechQueue implements SpeechQueuePort {
   private emitTelemetry;
   cancel(generationId: GenerationId): void;
 }
+export {};

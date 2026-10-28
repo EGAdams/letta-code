@@ -13,6 +13,7 @@ interface PlaybackToken {
 interface SpeechSynthesizerPort {
   readonly lastError?: string | null;
   speak(text: string, agentName?: string | null): PlaybackToken | null;
+  prefetch?(text: string, agentName?: string | null): void;
   cancel?(): void;
 }
 
@@ -79,9 +80,17 @@ export class SequentialSpeechQueue implements SpeechQueuePort {
     if (state.cancelled || segment.sequence !== state.expectedSequence) return;
     state.expectedSequence += 1;
     state.pendingCount += 1;
+    // Preparation overlaps earlier playback; only the chain may start audio.
+    const prefetch = typeof this.speech.prefetch === "function";
+    try {
+      if (prefetch) this.emitTelemetry("tts_requested", segment);
+      this.speech.prefetch?.(segment.text, agentName);
+    } catch {
+      // A failed preparation is reported by the normal playback path.
+    }
     state.chain = state.chain.then(async () => {
       if (state?.cancelled) return;
-      this.emitTelemetry("tts_requested", segment);
+      if (!prefetch) this.emitTelemetry("tts_requested", segment);
       const playback = this.speech.speak(segment.text, agentName);
       if (!playback) return;
       state.current = playback;

@@ -37,6 +37,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     this._generation = 0;
     this._lastError = null;
     this._finishPlayback = null;
+    this._prepared = new Map();
   }
 
   /**
@@ -82,7 +83,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     if (!this.supported) return null;
     const say = this.clean(text);
     if (!say) return null;
-    this.cancel();
+    this._stopPlayback();
     const generation = this._generation;
     this._lastError = null;
     let resolveFinished;
@@ -121,6 +122,12 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
 
   /** Stop server audio AND any in-flight fetch/browser speech. */
   cancel() {
+    for (const entry of this._prepared.values()) entry.controller.abort();
+    this._prepared.clear();
+    this._stopPlayback();
+  }
+
+  _stopPlayback() {
     this._generation += 1;
     const finish = this._finishPlayback;
     this._finishPlayback = null;
@@ -140,16 +147,10 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
   async _speakRemote(say, generation, agentName = null, finish = () => {}) {
     if (!this._fetchFn || !this._audioFactory) throw new Error("no server tts");
     const voice = this.getVoice(agentName);
-    const res = await this._fetchFn("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(voice ? { text: say, voice } : { text: say }),
-    });
-    const type = res?.headers?.get?.("content-type") || "";
-    if (!res || !res.ok || !type.startsWith("audio/")) {
-      throw new Error(`tts unavailable (${res ? res.status : "no response"})`);
-    }
-    const blob = await res.blob();
+    const key = `${voice || ""}\u0000${say}`;
+    const entry = this._audioRequest(say, voice);
+    const blob = await entry.promise;
+    if (this._prepared.get(key) === entry) this._prepared.delete(key);
     if (generation !== this._generation) return null; // superseded meanwhile
     const URLApi = this._win?.URL || globalThis.URL;
     this._audioUrl = URLApi?.createObjectURL
@@ -168,6 +169,39 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     await audio.play();
     if (generation !== this._generation) return null;
     return "edge-tts";
+  }
+
+  /** Prepare audio while the previous sentence plays; never start playback. */
+  prefetch(text, agentName = null) {
+    const say = this.clean(text);
+    if (say && this.supported)
+      void this._audioRequest(say, this.getVoice(agentName)).promise.catch(
+        () => {},
+      );
+  }
+
+  _audioRequest(say, voice) {
+    const key = `${voice || ""}\u0000${say}`;
+    if (this._prepared.has(key)) return this._prepared.get(key);
+    const controller = new AbortController();
+    const promise = this._fetchFn("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(voice ? { text: say, voice } : { text: say }),
+      signal: controller.signal,
+    }).then(async (res) => {
+      if (!res?.ok || !res.headers?.get?.("content-type")?.startsWith("audio/"))
+        throw new Error(
+          `tts unavailable (${res ? res.status : "no response"})`,
+        );
+      return res.blob();
+    });
+    const entry = { promise, controller };
+    this._prepared.set(key, entry);
+    void promise.catch(() => {
+      if (this._prepared.get(key) === entry) this._prepared.delete(key);
+    });
+    return entry;
   }
 
   _releaseUrl() {

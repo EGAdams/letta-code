@@ -10,6 +10,10 @@ token-limit response now hands off immediately to the configured OpenAI backup.
 See `~/agent_blocks/lancedb_memory/receptionist_team/LATENCY.md` for the policy
 and request-correlated `[turn-timing]` diagnostics.
 
+The speech queue prepares later sentence MP3s during earlier playback. Edge
+TTS preparation never starts playback; cancel aborts pending fetches. Server
+cache locks coalesce identical requests across per-request synthesizer objects.
+
 ## Phone / microphone access (HTTPS required)
 
 `getUserMedia()` (mic capture) only works in a secure context (https or localhost). Plain

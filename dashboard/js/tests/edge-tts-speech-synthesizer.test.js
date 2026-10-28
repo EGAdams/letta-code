@@ -52,6 +52,53 @@ function fakeSpeechWindow() {
 }
 
 describe("EdgeTtsSpeechSynthesizer", () => {
+  test("prepares later sentences during playback and reuses their requests", async () => {
+    const calls = [];
+    const { created, factory } = fakeAudioFactory();
+    const speech = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async (_url, opts) => {
+          calls.push(JSON.parse(opts.body).text);
+          return okAudioResponse();
+        },
+        audioFactory: factory,
+      },
+    );
+    speech.prefetch("First.", "Toyota");
+    speech.prefetch("Second.", "Toyota");
+    expect(calls).toEqual(["First.", "Second."]);
+    expect(created.length).toBe(0);
+    await speech.speak("First.", "Toyota").pending;
+    expect(created.length).toBe(1);
+    created[0].onended();
+    await speech.speak("Second.", "Toyota").pending;
+    expect(calls.length).toBe(2);
+    expect(created.length).toBe(2);
+    speech.cancel();
+  });
+
+  test("barge-in aborts all prefetched requests without starting audio", () => {
+    const signals = [];
+    const { created, factory } = fakeAudioFactory();
+    const speech = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: (_url, opts) => {
+          signals.push(opts.signal);
+          return new Promise(() => {});
+        },
+        audioFactory: factory,
+      },
+    );
+    speech.prefetch("Never play this.");
+    speech.prefetch("Or this.");
+    speech.cancel();
+    expect(signals.length).toBe(2);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(created.length).toBe(0);
+  });
+
   test("supported via server tts even without Web Speech", () => {
     const { factory } = fakeAudioFactory();
     const s = new EdgeTtsSpeechSynthesizer(

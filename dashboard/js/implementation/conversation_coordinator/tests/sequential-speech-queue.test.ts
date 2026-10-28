@@ -4,9 +4,13 @@ import { SequentialSpeechQueue } from "../src/sequential-speech-queue.ts";
 describe("SequentialSpeechQueue", () => {
   test("waits for one sentence to finish before starting the next", async () => {
     const calls: string[] = [];
+    const prepared: string[] = [];
     const releases: Array<() => void> = [];
     const queue = new SequentialSpeechQueue({
       speech: {
+        prefetch(text) {
+          prepared.push(text);
+        },
         speak(text) {
           calls.push(text);
           let release!: () => void;
@@ -28,6 +32,7 @@ describe("SequentialSpeechQueue", () => {
       "Toyota",
     );
     await Promise.resolve();
+    expect(prepared).toEqual(["First.", "Second."]);
     expect(calls).toEqual(["First."]);
     releases[0]?.();
     await Bun.sleep(0);

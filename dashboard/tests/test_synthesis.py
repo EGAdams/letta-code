@@ -6,8 +6,35 @@ only adapts HTTP to the voice service.
 
 import subprocess
 import types
+import concurrent.futures
+import threading
 
 from voice.synthesis import EdgeTtsSynthesizer
+
+
+def test_concurrent_identical_requests_share_one_synthesis_across_instances(tmp_path):
+    calls, entered, release = [], threading.Event(), threading.Event()
+
+    def runner(command, **_kwargs):
+        calls.append(command)
+        entered.set()
+        assert release.wait(2)
+        output = command[command.index('--write-media') + 1]
+        with open(output, 'wb') as stream:
+            stream.write(b'ID3-shared')
+        return types.SimpleNamespace(returncode=0, stderr='')
+
+    first, _ = _service(tmp_path, runner=runner)
+    second, _ = _service(tmp_path, runner=runner)
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        a = pool.submit(first.synthesize, 'Identical sentence.')
+        assert entered.wait(2)
+        b = pool.submit(second.synthesize, 'Identical sentence.')
+        release.set()
+        results = [a.result(2), b.result(2)]
+    assert all(r['ok'] for r in results)
+    assert sorted(r['cached'] for r in results) == [False, True]
+    assert len(calls) == 1
 
 
 def _service(tmp_path, **overrides):
