@@ -41,12 +41,19 @@ export function createSshManager({
   connHealth.subscribe((health) => {
     if (!health) return;
     const map = {};
-    for (const c of health.connections) map[c.key] = c.status;
+    for (const c of health.connections) map[c.key] = c;
     nav.ssh.querySelectorAll("[data-conn-key]").forEach((tab) => {
-      const status = map[tab.dataset.connKey] || "unknown";
-      tab.classList.remove("server-up", "server-down", "server-starting");
+      const c = map[tab.dataset.connKey];
+      const status = c ? c.status : "unknown";
+      tab.classList.remove(
+        "server-up",
+        "server-down",
+        "server-starting",
+        "muted",
+      );
       if (status === "up") tab.classList.add("server-up");
       else if (status === "down") tab.classList.add("server-down");
+      tab.classList.toggle("muted", !!(c && c.muted));
     });
   });
 
@@ -110,12 +117,17 @@ export function createSshManager({
         '<div class="srv-status starting" id="ssh-status"><span class="srv-led"></span><span id="ssh-status-text">checking…</span></div>' +
         '<input class="srv-filter" id="ssh-filter" placeholder="Filter log lines (e.g. timed out)…" />' +
         '<button class="srv-start-btn" id="ssh-test-btn">Test Connection</button>' +
+        `<button type="button" class="am-btn ms-mute-btn" id="ssh-mute-btn" data-muted="${meta.muted ? "1" : "0"}">${meta.muted ? "Unmute warning" : "Mute warning"}</button>` +
+        (meta.muted
+          ? '<p class="am-dim" id="ssh-mute-note">Warning silenced — the status above is the real one; this only keeps the tab from blinking. Click Unmute once resolved.</p>'
+          : "") +
         '<div id="ssh-console-host"></div>';
       viewNav.activateView("ssh-connection-detail");
 
       const statusEl = body.querySelector("#ssh-status");
       const statusText = body.querySelector("#ssh-status-text");
       const testBtn = body.querySelector("#ssh-test-btn");
+      const muteBtn = body.querySelector("#ssh-mute-btn");
       const view = DomConsoleView.mount(
         body.querySelector("#ssh-console-host"),
         "ssh",
@@ -159,6 +171,37 @@ export function createSshManager({
         testBtn.disabled = false;
         await this.logController.poll();
       });
+
+      if (muteBtn) {
+        muteBtn.addEventListener("click", async () => {
+          const nextMuted = muteBtn.dataset.muted !== "1";
+          muteBtn.disabled = true;
+          try {
+            await http.postJSON("/api/ssh-connection-mute", {
+              key,
+              muted: nextMuted,
+            });
+            meta.muted = nextMuted;
+            muteBtn.dataset.muted = nextMuted ? "1" : "0";
+            muteBtn.textContent = nextMuted ? "Unmute warning" : "Mute warning";
+            let note = body.querySelector("#ssh-mute-note");
+            if (nextMuted && !note) {
+              note = doc.createElement("p");
+              note.className = "am-dim";
+              note.id = "ssh-mute-note";
+              note.textContent =
+                "Warning silenced — the status above is the real one; this only keeps the tab from blinking. Click Unmute once resolved.";
+              muteBtn.after(note);
+            } else if (!nextMuted && note) {
+              note.remove();
+            }
+          } catch (e2) {
+            console.error("ssh-connection-mute failed", e2);
+          }
+          muteBtn.disabled = false;
+          this.pollHealth();
+        });
+      }
 
       this.logController.start();
     },

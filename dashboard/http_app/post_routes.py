@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import adw_prompts
 import codex_sync_status
 import model_stats_mute
+import ssh_connection_mute
 import statement_review
 import mazda_receptionist_service
 import mazda_service
@@ -37,7 +38,9 @@ from letta_code.runner import ConversationBusyError
 from letta_code import streaming as conversation_streaming
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
+from monitoring import ssh_checks
 from pydantic import ValidationError
+from ssh_connection_mute import SshConnectionMuteRequest
 from voice import (config, latency_log, note_factory, note_repository,
                    pipeline, receptionist)
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
@@ -156,6 +159,20 @@ class PostRoutesMixin:
             model_stats_mute.set_muted(req.source, req.muted)
             return self.json_response(model_stats_mute.apply_mute_overlay(
                 model_stats_reader.model_stats(req.source), req.source))
+
+        if path == '/api/ssh-connection-mute':
+            try:
+                req = SshConnectionMuteRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            ssh_connection_mute.set_muted(req.key, req.muted)
+            cfg = ssh_checks.get_ssh_connection(req.key)
+            if not cfg:
+                return self.json_response({'ok': False, 'muted': req.muted, 'error': 'unknown connection'})
+            h = ssh_checks.cached_ssh_health(cfg)
+            status = 'up' if h.get('ok') else 'down'
+            return self.json_response(ssh_connection_mute.apply_mute_overlay(
+                {'key': cfg['key'], 'name': cfg['name'], 'status': status}, req.key))
 
         if path == '/api/server-action':
             try:

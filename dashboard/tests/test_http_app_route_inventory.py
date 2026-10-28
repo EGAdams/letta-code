@@ -67,6 +67,7 @@ POST_ROUTES = [
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',
     '/api/scanner-scan', '/api/server-action', '/api/set-receipt-vendor',
+    '/api/ssh-connection-mute',
     '/api/statement-review-resolve', '/api/supporting-documents', '/api/test',
     '/api/tts', '/api/undo-recategorize-expense', '/api/voice',
 ]

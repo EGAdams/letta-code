@@ -17,6 +17,7 @@ import adw_prompts
 import codex_sync_status
 import document_annotation
 import model_stats_mute
+import ssh_connection_mute
 import statement_review
 import toyota_service
 from receptionist_work import http_api as receptionist_work_api
@@ -494,19 +495,25 @@ class GetRoutesMixin:
 
         if path == '/api/ssh-connections':
             return self.json_response([
-                {'key': c['key'], 'name': c['name'], 'note': c.get('note', '')}
+                {'key': c['key'], 'name': c['name'], 'note': c.get('note', ''),
+                 'muted': ssh_connection_mute.is_muted(c['key'])}
                 for c in SSH_CONNECTIONS
             ])
 
         if path == '/api/ssh-connection-health':
             # Overall SSH health: a real `ssh ... echo CONNECTED` round trip per
-            # connection. "down" means SSH itself is broken to that host.
+            # connection. "down" means SSH itself is broken to that host. A muted
+            # connection's status is downgraded to 'up' here so its tab stops
+            # blinking; the detail panel/logs below read the real status straight
+            # from ssh_checks and are never overlaid.
             result = {'connections': [], 'all_up': True, 'any_down': False}
             for cfg in SSH_CONNECTIONS:
                 h = ssh_checks.cached_ssh_health(cfg)
                 status = 'up' if h.get('ok') else 'down'
-                result['connections'].append({'key': cfg['key'], 'name': cfg['name'], 'status': status})
-                if status == 'down':
+                entry = ssh_connection_mute.apply_mute_overlay(
+                    {'key': cfg['key'], 'name': cfg['name'], 'status': status}, cfg['key'])
+                result['connections'].append(entry)
+                if entry['status'] == 'down':
                     result['any_down'] = True
                     result['all_up'] = False
             return self.json_response(result)

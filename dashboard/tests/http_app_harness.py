@@ -29,7 +29,7 @@ from http_app.runtime import ReusableHTTPServer
 DO_NOT_STUB = {
     'ChatGptProviderSwapRequest', 'CodexSyncRequest', 'CodexSyncToggleRequest',
     'ModelStatsMuteRequest', 'NoteEditRequest', 'PartialVoiceCommand',
-    'ValidationError', 'taxonomy_category_namer',
+    'SshConnectionMuteRequest', 'ValidationError', 'taxonomy_category_namer',
 }
 
 
@@ -104,6 +104,8 @@ def default_returns():
             'backend': 'letta', 'forced': False, 'service': None},
         # Routes that serve a file and 404 when the lookup comes back empty
         '_report_source_document_view': lambda *a, **k: an_existing_file,
+        # ssh_connection_mute: nothing muted unless a test says so
+        'is_muted': False,
     }
 
 
@@ -135,6 +137,9 @@ DIRECT_SERVICES = {
     'health.frita': ('claude_sdk_account_payload', 'set_claude_sdk_account'),
     'model_stats.reader': ('model_stats',),
     'model_stats_mute': ('apply_mute_overlay', 'set_muted'),
+    # the overlay is pure; stub only the mute-file I/O so the routes still
+    # get a real {'status': ...} entry back
+    'ssh_connection_mute': ('is_muted', 'set_muted'),
     'letta_code.streaming': ('stream_letta_code_message',),
     'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health'),
     'sydney_service': ('stream_sydney_turn', 'health'),
