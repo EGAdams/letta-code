@@ -26,6 +26,7 @@ import {
   wakePhraseIntentPolicy,
 } from "../implementation/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
+import { ReceptionistDesk } from "./receptionist-desk.js";
 
 export function createAgentDetailRenderers({
   http,
@@ -36,6 +37,7 @@ export function createAgentDetailRenderers({
   storage = globalThis.localStorage,
   doc = globalThis.document,
   win = globalThis.window,
+  deskFactory = (desk, deps) => new ReceptionistDesk(desk, deps),
 }) {
   const streamRenderers = {
     "agent-detail-thoughts": new StreamDetailRenderer({
@@ -106,14 +108,10 @@ export function createAgentDetailRenderers({
     }).render(target, am.current.id);
   };
 
-  // Mazda gets Toyota's front-desk box: streaming replies through
+  // Mazda gets a box like Toyota's: streaming replies through
   // /api/mazda-turn (shared LanceDB recall + "put Toyota on the horn"), a
   // Start Listening button answering to "Mazda, ...", and the dark note
   // surface. Her listener outlives re-renders like the router's does.
-  //
-  // Sydney gets the same box, because she IS Toyota's engine: her turns go to
-  // /api/sydney-turn, the receptionist_team sidecar run as --agent sydney, and
-  // "Sydney, put Toyota on" opens the front desk through the same hand-off.
   const listeners = new Map();
   const receptionistOptions = (name) => {
     if (!listeners.has(name))
@@ -126,7 +124,45 @@ export function createAgentDetailRenderers({
   };
   const RECEPTIONIST_BOXES = {
     [MAZDA_AGENT_ID]: { name: "mazda", endpoint: "/api/mazda-turn" },
-    [SYDNEY_AGENT_ID]: { name: "sydney", endpoint: "/api/sydney-turn" },
+  };
+
+  // Sydney is not "a box like Toyota's": she IS Toyota's desk — the same
+  // ReceptionistDesk Toyota's Home screen is built from, so the Pause gate,
+  // her own voice, the Pipecat recorder and Start Listening come with it. Her
+  // turns go to /api/sydney-turn (the sidecar run as --agent sydney), and
+  // "Sydney, put Toyota on" opens the front desk through the same hand-off.
+  // Whether she is on the voice pilot is the server's call, learned once;
+  // until it answers she records on the default path.
+  const DESKS = {
+    [SYDNEY_AGENT_ID]: (target) => {
+      let pipecat = false;
+      http
+        .getJSON(`/api/voice-media-backend?agent=${SYDNEY_AGENT_ID}`)
+        .then((d) => {
+          pipecat = d?.voice_media_backend === "pipecat";
+        })
+        .catch(() => {});
+      return deskFactory(
+        {
+          name: "Sydney",
+          agentId: SYDNEY_AGENT_ID,
+          boxId: target,
+          conversationAgent: new StreamingLettaAgentAdapter({
+            storage,
+            endpoint: "/api/sydney-turn",
+          }),
+          intentPolicy: wakePhraseIntentPolicy("sydney"),
+          pipecatSelected: () => pipecat,
+        },
+        { http, storage, doc, win },
+      );
+    },
+  };
+  const desks = new Map();
+  const deskFor = (id, target) => {
+    if (!DESKS[id]) return null;
+    if (!desks.has(id)) desks.set(id, DESKS[id](target));
+    return desks.get(id);
   };
   const newConversationAgent = (id, target) =>
     RECEPTIONIST_BOXES[id]
@@ -140,6 +176,12 @@ export function createAgentDetailRenderers({
       : new LettaAgentAdapter({ http, storage });
 
   const renderInputOptions = (am, target) => {
+    const desk = deskFor(am.current.id, target);
+    if (desk)
+      return new InputOptionsRenderer({
+        ...desk.rendererOptions(),
+        onStatus: setAgentTabStatus,
+      }).render(target, am.current.id);
     const voiceSession = sessionFor(voiceSessions, am.current.id);
     let conversationAgent = conversationAgents.get(am.current.id);
     if (!conversationAgent) {

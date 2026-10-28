@@ -866,8 +866,9 @@ export class InputOptionsRenderer extends DetailRenderer {
     voiceRow.append(startBtn, recInd);
 
     // Pause/Play for the spoken reply — only when a PausableAudioGate is
-    // injected (Toyota's box). Solid yellow "Pause" while she may talk;
-    // blinking yellow "Play" while held. Same full width as Start.
+    // injected (a receptionist desk: Toyota's box, Sydney's). Solid yellow
+    // "Pause" while she may talk; blinking yellow "Play" while held. Same full
+    // width as Start.
     let pauseBtn = null;
     if (this._playbackControl) {
       const gate = this._playbackControl;
@@ -877,8 +878,8 @@ export class InputOptionsRenderer extends DetailRenderer {
         pauseBtn.textContent = paused ? "Play" : "Pause";
         pauseBtn.classList.toggle("paused", paused);
         pauseBtn.title = paused
-          ? "Toyota's voice is paused — press to hear her from where she stopped"
-          : "Pause Toyota's voice; Play picks up where she left off";
+          ? `${this._agentName}'s voice is paused — press to hear her from where she stopped`
+          : `Pause ${this._agentName}'s voice; Play picks up where she left off`;
       };
       renderPause(gate.paused);
       gate.onChange(renderPause);

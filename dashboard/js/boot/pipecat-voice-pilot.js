@@ -5,18 +5,23 @@ import { HttpVoiceMediaClient } from "../implementation/voice_media/dist/http-vo
 
 export const PIPECAT_PILOT_AGENT_KEY = "voicePipecatPilotAgentId";
 
+// `serverSelected` is a boolean, or a function asked on every recording —
+// for a desk that learns the server's choice after it has rendered.
 export function recorderFactoryForAgent(
   agentId,
   storage,
   { serverSelected = false } = {},
 ) {
-  const isPilot =
+  const isPilot = () =>
     Boolean(agentId) &&
-    (serverSelected || storage?.getItem?.(PIPECAT_PILOT_AGENT_KEY) === agentId);
+    ((typeof serverSelected === "function"
+      ? serverSelected()
+      : serverSelected) ||
+      storage?.getItem?.(PIPECAT_PILOT_AGENT_KEY) === agentId);
   return (options) =>
     new MediaRecorderVoiceRecorder({
       ...options,
-      ...(isPilot
+      ...(isPilot()
         ? {
             mediaClient: new HttpVoiceMediaClient({
               fetch: options.fetch,

@@ -39,9 +39,9 @@ from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
 from paths import ADW_GENERATED_DIR, HERE, REPO_ROOT
 from intake.statuses import ScannerIntakeStatusResponse
-from voice import config as voice_config
 
 from . import services as srv
+from . import voice_admission
 from .registry import current_ports
 from .static_files import resolve_static_asset
 
@@ -142,13 +142,20 @@ class GetRoutesMixin:
             return self.json_response({
                 'ok': True, 'agent_id': receptionist['agent_id'],
                 'name': receptionist['name'],
-                'voice_media_backend': (
-                    'pipecat'
-                    if receptionist['agent_id'] == voice_config.PIPECAT_PILOT_AGENT_ID
-                    else 'whisper'),
+                'voice_media_backend': voice_admission.VOICE_MEDIA.backend_for(
+                    receptionist['agent_id']),
                 'conversation_backend': conversation['backend'],
                 'conversation_backend_forced': conversation['forced'],
                 'conversation_service': conversation['service'],
+            })
+
+        if path == '/api/voice-media-backend':
+            # Which transcriber an agent page's Start button should upload to.
+            # Toyota learns hers from /api/receptionist-agent; Sydney, who
+            # shares Toyota's voice pilot, asks here. See voice.media_admission.
+            return self.json_response({
+                'ok': True, 'agent_id': agent_id,
+                'voice_media_backend': voice_admission.VOICE_MEDIA.backend_for(agent_id),
             })
 
         if path == '/api/agent-voice':

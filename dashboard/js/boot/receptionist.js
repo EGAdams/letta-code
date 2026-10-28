@@ -27,23 +27,17 @@
 // Both routes emit the same NDJSON envelope deliberately, so this is an
 // endpoint swap on one adapter rather than two adapters. Everything above the
 // conversationAgent port — mic, continuous listening, sentence segmentation,
-// edge-tts playback — is identical either way.
+// edge-tts playback — is identical either way, and lives in
+// receptionist-desk.js, which Sydney's Agent Management page shares.
 
 import {
-  AgentWindowHandoff,
-  BrowserAgentWindows,
-  BrowserSpeechRecognitionListener,
-  EdgeTtsSpeechSynthesizer,
-  EditableDarkNoteSurface,
   FRONT_DESK_WINDOW,
   InputOptionsRenderer,
-  PausableAudioGate,
-  SpokenOutputPolicy,
   StreamingLettaAgentAdapter,
-  VoiceSession,
 } from "../implementation/index.js";
 import { createOperationalConversation } from "../implementation/receptionist_work/dist/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
+import { ReceptionistDesk } from "./receptionist-desk.js";
 
 export async function startReceptionist({
   http,
@@ -52,15 +46,13 @@ export async function startReceptionist({
   doc = globalThis.document,
   recorderFactoryBuilder = recorderFactoryForAgent,
   rendererFactory = (options) => new InputOptionsRenderer(options),
-  listenerFactory = () => new BrowserSpeechRecognitionListener(),
+  listenerFactory,
   workAgentFactory = createOperationalConversation,
   win = globalThis.window,
-  // Toyota wakes up paused (blinking Play) so she never startles anyone.
-  // She gets her own synthesizer so the gate holds only her voice, not the
-  // other agents' pages that share `speech`.
-  playbackControl = new PausableAudioGate({ paused: true }),
-  speechFactory = (gate) =>
-    new EdgeTtsSpeechSynthesizer(win, { audioFactory: gate.audioFactory }),
+  // Toyota wakes up paused (blinking Play) so she never startles anyone; see
+  // ReceptionistDesk for the gate and her own synthesizer.
+  playbackControl,
+  speechFactory,
 }) {
   let agentId;
   let voiceMediaBackend = "whisper";
@@ -80,7 +72,6 @@ export async function startReceptionist({
     conversationBackend === "receptionist-team"
       ? "/api/receptionist-turn"
       : "/api/letta-code-stream";
-  const voiceSession = new VoiceSession();
   const inner = new StreamingLettaAgentAdapter({ storage, endpoint });
   const operations =
     conversationBackend === "receptionist-team"
@@ -90,33 +81,38 @@ export async function startReceptionist({
   // one lets Mazda put Toyota back on the horn without reloading her. A popup
   // keeps the name it was opened with, so only an unnamed window claims it.
   if (win && !win.name) win.name = FRONT_DESK_WINDOW;
-  const conversationAgent = new AgentWindowHandoff(
-    operations?.agent || inner,
-    new BrowserAgentWindows({ win, doc, boxId: "receptionist-box" }),
-  );
-  const rendered = rendererFactory({
-    http,
-    conversationAgent,
-    voiceSession,
-    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
-    speech: playbackControl ? speechFactory(playbackControl) : speech,
-    playbackControl,
-    agentName: "Toyota",
-    agentId,
-    storage,
-    doc,
-    recorderFactory: recorderFactoryBuilder(agentId, storage, {
-      serverSelected: voiceMediaBackend === "pipecat",
-    }),
-    listener: listenerFactory(),
-    receptionistIntentPolicy: {
-      evaluate: (text) =>
-        http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),
+  const desk = new ReceptionistDesk(
+    {
+      name: "Toyota",
+      agentId,
+      boxId: "receptionist-box",
+      conversationAgent: operations?.agent || inner,
+      intentPolicy: {
+        evaluate: (text) =>
+          http.postJSON(
+            "/api/receptionist-intent",
+            { text },
+            { timeout: 15000 },
+          ),
+      },
+      pipecatSelected: voiceMediaBackend === "pipecat",
     },
-    // Same white-on-black look as before, now editable and clearing like any
-    // other agent's message box.
-    surfaceFactory: (opts) => new EditableDarkNoteSurface(opts),
-  }).render("receptionist-box", agentId);
+    {
+      http,
+      storage,
+      doc,
+      win,
+      recorderFactoryBuilder,
+      ...(listenerFactory ? { listenerFactory } : {}),
+      ...(playbackControl !== undefined ? { playbackControl } : {}),
+      ...(speechFactory ? { speechFactory } : {}),
+      speech,
+    },
+  );
+  const rendered = rendererFactory(desk.rendererOptions()).render(
+    "receptionist-box",
+    agentId,
+  );
   operations?.mount();
   if (!operations) {
     const notice = doc.createElement("p");

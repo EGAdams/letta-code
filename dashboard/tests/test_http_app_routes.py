@@ -133,6 +133,22 @@ class TestReceptionistVoiceMediaContract:
         assert response.status == 200
         assert response.json['voice_media_backend'] == 'whisper'
 
+    def test_sydney_shares_toyotas_pipecat_pilot(self, live, svc, monkeypatch):
+        monkeypatch.setattr(voice_config, 'PIPECAT_PILOT_AGENT_ID', 'toyota-pilot')
+
+        sydney = live.get('/api/voice-media-backend?agent=agent-sydney')
+        other = live.get('/api/voice-media-backend?agent=agent-other')
+
+        assert sydney.json['voice_media_backend'] == 'pipecat'
+        assert other.json['voice_media_backend'] == 'whisper'
+
+    def test_sydney_rides_on_the_pilot_and_stops_with_it(self, live, svc, monkeypatch):
+        monkeypatch.setattr(voice_config, 'PIPECAT_PILOT_AGENT_ID', None)
+
+        response = live.get('/api/voice-media-backend?agent=agent-sydney')
+
+        assert response.json['voice_media_backend'] == 'whisper'
+
 
 class TestConversationStreamContract:
     def test_streams_validated_ndjson_without_waiting_for_a_content_length(

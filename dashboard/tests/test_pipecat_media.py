@@ -365,6 +365,28 @@ def test_voice_route_uses_pipecat_only_for_enabled_pilot_agent(monkeypatch):
     assert calls == [("pipecat",)]
 
 
+def test_voice_route_admits_sydney_on_toyotas_pilot(monkeypatch):
+    from http_app import post_routes
+    from voice import config, pipeline
+
+    class Handler:
+        headers = {
+            "X-Filename": "voice.webm",
+            "X-Voice-Media-Backend": "pipecat",
+            "X-Voice-Agent-Id": "agent-sydney",
+        }
+
+        def json_response(self, result):
+            return result
+
+    calls = []
+    monkeypatch.setattr(config, "PIPECAT_PILOT_AGENT_ID", "agent-pilot", raising=False)
+    monkeypatch.setattr(pipeline, "build_pipeline", lambda *args: calls.append(args) or object())
+    monkeypatch.setattr(pipeline, "handle_voice_upload", lambda *args: {"ok": False, "error": "test"})
+    post_routes.PostRoutesMixin._handle_voice(Handler(), b"recorded")
+    assert calls == [("pipecat",)]
+
+
 def test_voice_route_defaults_to_existing_media_path(monkeypatch):
     from http_app import post_routes
     from voice import pipeline

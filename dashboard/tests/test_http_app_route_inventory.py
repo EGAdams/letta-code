@@ -39,7 +39,7 @@ GET_ROUTES = [
     '/api/server-logs', '/api/servers', '/api/ssh-connection-health',
     '/api/ssh-connection-logs', '/api/ssh-connection-test',
     '/api/ssh-connections', '/api/statement-reviews', '/api/thoughts', '/api/toolcalls',
-    '/api/vendor-keys', '/report-source-document',
+    '/api/vendor-keys', '/api/voice-media-backend', '/report-source-document',
 ]
 
 POST_ROUTES = [

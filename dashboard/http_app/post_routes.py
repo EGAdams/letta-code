@@ -43,6 +43,7 @@ from voice import (config, latency_log, note_factory, note_repository,
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
+from . import voice_admission
 from .registry import current_ports
 
 # One turn endpoint per receptionist_team sidecar that has no brain choice of
@@ -882,8 +883,8 @@ class PostRoutesMixin:
         requested_backend = self.headers.get('X-Voice-Media-Backend')
         if requested_backend:
             agent_id = self.headers.get('X-Voice-Agent-Id')
-            if (requested_backend != 'pipecat' or not config.PIPECAT_PILOT_AGENT_ID
-                    or agent_id != config.PIPECAT_PILOT_AGENT_ID):
+            if (requested_backend != 'pipecat'
+                    or not voice_admission.VOICE_MEDIA.admits(agent_id)):
                 return self.json_response({
                     'ok': False, 'error': 'voice media pilot is unavailable for this agent',
                 })
