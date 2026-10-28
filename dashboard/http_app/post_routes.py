@@ -20,7 +20,9 @@ import codex_sync_status
 import model_stats_mute
 import statement_review
 import mazda_service
+import sydney_service
 import toyota_service
+from receptionist_sidecar import IReceptionistSidecar, ReceptionistTurnRequest
 from receptionist_work import http_api as receptionist_work_api
 from agent_thoughts import message_text as _msg_text
 from agents import conversation_management
@@ -41,6 +43,13 @@ from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
 from .registry import current_ports
+
+# One turn endpoint per receptionist_team sidecar. Same engine, same handler;
+# a new receptionist is one row here, never another copy of the route.
+RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistSidecar] = {
+    '/api/receptionist-turn': toyota_service.TOYOTA,
+    '/api/sydney-turn': sydney_service.SYDNEY,
+}
 
 
 class PostRoutesMixin:
@@ -711,15 +720,16 @@ class PostRoutesMixin:
                 return self.error_response(str(e), 400)
             except Exception as e:
                 return self.error_response(str(e), 502)
-        if path == '/api/receptionist-turn':
-            # Toyota's other brain: receptionist_team's LanceDB-memory agent,
-            # which can delegate to a finance_team role. Same NDJSON envelope
-            # as /api/letta-code-stream, so the browser uses one adapter.
+        if path in RECEPTIONIST_TURN_ROUTES:
+            # A receptionist_team sidecar: Toyota's other brain, or Sydney (the
+            # same engine as --agent sydney). LanceDB memory plus delegation;
+            # same NDJSON envelope as /api/letta-code-stream, so the browser
+            # uses one adapter. See receptionist_sidecar.IReceptionistSidecar.
             try:
-                request = toyota_service.ToyotaTurnRequest.model_validate_json(body)
+                request = ReceptionistTurnRequest.model_validate_json(body)
             except ValidationError as e:
                 return self.error_response(f'invalid request: {e}', 400)
-            return self.ndjson_response(toyota_service.stream_toyota_turn(request))
+            return self.ndjson_response(RECEPTIONIST_TURN_ROUTES[path].stream_turn(request))
         if path == '/api/mazda-turn':
             # Mazda's agent page: her Letta CLI stream, with the LanceDB memory
             # she shares with Toyota composed in front of each message.

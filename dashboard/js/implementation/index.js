@@ -57,6 +57,7 @@ export {
   BrowserAgentWindows,
   FRONT_DESK_WINDOW,
   MAZDA_AGENT_ID,
+  SYDNEY_AGENT_ID,
   wakePhraseIntentPolicy,
 } from "./agent-window-handoff.js";
 export { AgentsRouterRenderer } from "./agents-router-renderer.js";

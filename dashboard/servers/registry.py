@@ -218,6 +218,7 @@ def build_server_specs(
     executor_startup_log: str,
     logger_api_startup_log: str,
     toyota_service_url: str,
+    sydney_service_url: str = 'http://127.0.0.1:8769',
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
 
@@ -302,6 +303,19 @@ def build_server_specs(
                  'roles. RED means her box silently falls back to the Letta '
                  'streaming brain, which has neither. First start takes ~30s '
                  'while the sentence-transformers model loads.',
+        ),
+        ServerSpec(
+            key='sydney-receptionist',
+            name='Sydney Receptionist',
+            probe=HttpProbe(health_url=f'{sydney_service_url}/health'),
+            log_file='/tmp/sydney_receptionist.log',
+            note='receptionist_team sidecar run as --agent sydney '
+                 '(agent_blocks/lancedb_memory, loopback :8769) -- Toyota\'s '
+                 'clone for the non-financial work: code, new agents, the '
+                 'mechanic, the browser and web search, the ADWs. Same engine '
+                 'and shared LanceDB memory as Toyota. RED means her Agent '
+                 'Management box cannot answer; she has no Letta fallback. '
+                 'First start takes ~30s while the sentence-transformers model loads.',
         ),
         ServerSpec(
             key='mcp-proxy',

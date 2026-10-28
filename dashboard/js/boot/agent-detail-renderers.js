@@ -20,6 +20,7 @@ import {
   SpokenOutputPolicy,
   StreamDetailRenderer,
   StreamingLettaAgentAdapter,
+  SYDNEY_AGENT_ID,
   TestChatAgentAdapter,
   VoiceSession,
   wakePhraseIntentPolicy,
@@ -109,21 +110,30 @@ export function createAgentDetailRenderers({
   // /api/mazda-turn (shared LanceDB recall + "put Toyota on the horn"), a
   // Start Listening button answering to "Mazda, ...", and the dark note
   // surface. Her listener outlives re-renders like the router's does.
-  let mazdaListener = null;
-  const mazdaOptions = () => {
-    mazdaListener ??= new BrowserSpeechRecognitionListener();
+  //
+  // Sydney gets the same box, because she IS Toyota's engine: her turns go to
+  // /api/sydney-turn, the receptionist_team sidecar run as --agent sydney, and
+  // "Sydney, put Toyota on" opens the front desk through the same hand-off.
+  const listeners = new Map();
+  const receptionistOptions = (name) => {
+    if (!listeners.has(name))
+      listeners.set(name, new BrowserSpeechRecognitionListener());
     return {
-      listener: mazdaListener,
-      receptionistIntentPolicy: wakePhraseIntentPolicy("mazda"),
+      listener: listeners.get(name),
+      receptionistIntentPolicy: wakePhraseIntentPolicy(name),
       surfaceFactory: (opts) => new EditableDarkNoteSurface(opts),
     };
   };
+  const RECEPTIONIST_BOXES = {
+    [MAZDA_AGENT_ID]: { name: "mazda", endpoint: "/api/mazda-turn" },
+    [SYDNEY_AGENT_ID]: { name: "sydney", endpoint: "/api/sydney-turn" },
+  };
   const newConversationAgent = (id, target) =>
-    id === MAZDA_AGENT_ID
+    RECEPTIONIST_BOXES[id]
       ? new AgentWindowHandoff(
           new StreamingLettaAgentAdapter({
             storage,
-            endpoint: "/api/mazda-turn",
+            endpoint: RECEPTIONIST_BOXES[id].endpoint,
           }),
           new BrowserAgentWindows({ win, doc, boxId: target }),
         )
@@ -136,9 +146,10 @@ export function createAgentDetailRenderers({
       conversationAgent = newConversationAgent(am.current.id, target);
       conversationAgents.set(am.current.id, conversationAgent);
     }
-    const mazda = am.current.id === MAZDA_AGENT_ID ? mazdaOptions() : {};
+    const box = RECEPTIONIST_BOXES[am.current.id];
+    const receptionist = box ? receptionistOptions(box.name) : {};
     return new InputOptionsRenderer({
-      ...mazda,
+      ...receptionist,
       http,
       conversationAgent,
       voiceSession,

@@ -1,5 +1,5 @@
-"""Building the /api/agents list: every Letta agent plus the synthetic Claude
-Code entry.
+"""Building the /api/agents list: every Letta agent, every injected
+IListedAgent (Sydney's sidecar, today), and the synthetic Claude Code entry.
 
 Stale-while-revalidate: a cold rebuild can block >10s on the Letta roster
 fetch (which trips the browser's fetch timeout), so once the cache goes
@@ -11,7 +11,17 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable, Protocol
+
+
+class IListedAgent(Protocol):
+    """Something the Agent Management tab lists beside the Letta agents.
+
+    Owned here, by the one consumer: this module needs a row and nothing else,
+    so it never learns what kind of agent produced it.
+    """
+
+    def as_agent_row(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -24,6 +34,9 @@ class Collaborators:
     cache_lock: object
     cache_ttl: float
     build_agent_list: Callable
+    # Non-Letta agents the composition root wants listed (server.py passes
+    # sydney_service.LISTING). Listed after the Letta agents, before Claude.
+    listed_agents: tuple[IListedAgent, ...] = ()
 
 
 def refresh_agent_list_bg(deps: Collaborators):
@@ -62,6 +75,7 @@ def build_agent_list(deps: Collaborators, force_refresh=False):
             'model': '',   # could fetch from Letta but keep it fast
             'letta': True,
         })
+    agents.extend(listed.as_agent_row() for listed in deps.listed_agents)
     agents.append({
         'id': 'agent-claude',
         'name': 'Claude',

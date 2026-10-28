@@ -2876,6 +2876,10 @@ from agents.registry import AGENT_CARDS  # noqa: E402
 # Per-agent system message files, shown verbatim on the agent's Agent Card tab.
 AGENT_SYSTEM_MESSAGE_FILES = {
     'Mazda': os.path.expanduser('~/rol_finances/external_agents/mazda/system_message.xml'),
+    # The unrendered template ({{roster}} is filled in by the sidecar).
+    'Sydney': os.path.expanduser(
+        '~/agent_blocks/lancedb_memory/receptionist_team/agents/sydney/'
+        'system_prompt_template/system_prompt.md'),
 }
 
 
@@ -3006,6 +3010,7 @@ LETTA_REMOTE_LOG_CACHE_MAX_LINES = 4000  # trim threshold so /tmp doesn't grow u
 from servers.registry import build_server_specs as _build_server_specs  # noqa: E402
 from servers.registry import as_configs as _server_configs  # noqa: E402
 import toyota_service  # noqa: E402
+import sydney_service  # noqa: E402
 
 SERVER_SPECS = _build_server_specs(
     port=PORT,
@@ -3015,6 +3020,7 @@ SERVER_SPECS = _build_server_specs(
     executor_startup_log=EXECUTOR_STARTUP_LOG,
     logger_api_startup_log=LOGGER_API_STARTUP_LOG,
     toyota_service_url=toyota_service.TOYOTA_SERVICE_URL,
+    sydney_service_url=sydney_service.SYDNEY_SERVICE_URL,
 )
 SERVERS = _server_configs(SERVER_SPECS)
 
@@ -3536,6 +3542,11 @@ RESTART_REGISTRY = RestartRegistry([
         key='toyota-receptionist',
         handler=lambda: _restart_user_unit('toyota-receptionist',
                                            'toyota-receptionist.service')),
+    # Toyota's clone, same sidecar on :8769 -- same ~30s warm-up.
+    RestartCommand(
+        key='sydney-receptionist',
+        handler=lambda: _restart_user_unit('sydney-receptionist',
+                                           'sydney-receptionist.service')),
     RestartCommand(
         key='letta',
         handler=lambda: _restart_remote(
@@ -4256,6 +4267,7 @@ def _agent_list_deps():
         cache_lock=_agent_list_cache_lock,
         cache_ttl=AGENT_LIST_CACHE_TTL,
         build_agent_list=build_agent_list,
+        listed_agents=(sydney_service.LISTING,),
     )
 
 

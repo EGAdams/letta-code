@@ -214,7 +214,13 @@ One dependency lives outside this repo: Toyota's preferred brain is the
 module here that knows about it, the NDJSON `TurnRecord` shape is a contract
 across both repos, and a dead sidecar degrades Toyota to the Letta brain
 rather than breaking her box — see `docs/voice.md` and that package's own
-`CLAUDE.md`.
+`CLAUDE.md`. **Sydney** is the same sidecar run as `--agent sydney` (user unit
+`sydney-receptionist`, loopback `:8769`), Toyota's clone for the non-financial
+work. Both are `receptionist_sidecar.IReceptionistSidecar` instances
+(`toyota_service.TOYOTA`, `sydney_service.SYDNEY`) served through one
+`RECEPTIONIST_TURN_ROUTES` table in `http_app/post_routes.py`; Sydney is listed
+on the Agent Management tab as `agent-sydney` through
+`monitoring/agent_list.IListedAgent`, and has no Letta fallback.
 
 Two cross-cutting rules worth stating here: **everything on the voice/note path fails closed** (a
 malformed reply or dead connection means "keep waiting" / "unchanged", never a guess), and the

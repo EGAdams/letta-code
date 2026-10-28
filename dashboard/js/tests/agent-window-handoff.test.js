@@ -4,6 +4,7 @@ import {
   AGENT_WINDOWS,
   AgentWindowHandoff,
   BrowserAgentWindows,
+  SYDNEY_AGENT_ID,
   wakePhraseIntentPolicy,
 } from "../implementation/agent-window-handoff.js";
 import { FakeConversationAgent } from "../implementation/fake-conversation-agent.js";
@@ -161,6 +162,19 @@ describe("BrowserAgentWindows", () => {
     ]);
   });
 
+  test("Toyota opens Sydney's Agent Management box in its own window", () => {
+    const win = fakeWindow();
+    new BrowserAgentWindows({ win, doc: new FakeDocument(), boxId: "b" }).show({
+      agent: "sydney",
+      name: "Sydney",
+    });
+    expect(win.calls).toEqual([["", "rol-agent-sydney"]]);
+    expect(AGENT_WINDOWS.sydney.url).toBe(
+      `/?agent=${SYDNEY_AGENT_ID}&view=input-options`,
+    );
+    expect(win.opened.location.href).toBe(AGENT_WINDOWS.sydney.url);
+  });
+
   test("an unknown agent is ignored", () => {
     const win = fakeWindow();
     new BrowserAgentWindows({ win, doc: new FakeDocument(), boxId: "b" }).show({
@@ -181,5 +195,18 @@ describe("wakePhraseIntentPolicy", () => {
   test("ignores everything else", async () => {
     expect((await policy.evaluate("Toyota, open Mazda")).addressed).toBe(false);
     expect((await policy.evaluate("Mazda")).addressed).toBe(false);
+  });
+});
+
+describe("wakePhraseIntentPolicy for Sydney", () => {
+  const policy = wakePhraseIntentPolicy("sydney");
+  test("hears requests addressed to her and nobody else's", async () => {
+    expect(await policy.evaluate("Sydney, call the mechanic")).toEqual({
+      addressed: true,
+      cleaned_text: "call the mechanic",
+    });
+    expect((await policy.evaluate("Toyota, open Sydney")).addressed).toBe(
+      false,
+    );
   });
 });
