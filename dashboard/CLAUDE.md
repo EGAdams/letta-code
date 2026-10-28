@@ -216,8 +216,10 @@ across both repos, and a dead sidecar degrades Toyota to the Letta brain
 rather than breaking her box — see `docs/voice.md` and that package's own
 `CLAUDE.md`. **Sydney** is the same sidecar run as `--agent sydney` (user unit
 `sydney-receptionist`, loopback `:8769`), Toyota's clone for the non-financial
-work. Both are `receptionist_sidecar.IReceptionistSidecar` instances
-(`toyota_service.TOYOTA`, `sydney_service.SYDNEY`) served through one
+work. Toyota's, Mazda's and Sydney's bridges are all
+`receptionist_sidecar.SidecarBridge`, typed as `IReceptionistSidecar`
+(`toyota_service.BRIDGE`, `mazda_receptionist_service.BRIDGE`,
+`sydney_service.BRIDGE`); Toyota's and Sydney's turns go through one
 `RECEPTIONIST_TURN_ROUTES` table in `http_app/post_routes.py`; Sydney is listed
 on the Agent Management tab as `agent-sydney` through
 `monitoring/agent_list.IListedAgent`, and has no Letta fallback.

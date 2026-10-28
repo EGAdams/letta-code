@@ -101,7 +101,7 @@ def _spec(**overrides) -> dict:
 #: a growing blind spot.
 KNOWN_POST_BASELINE_ADDITIONS = {
     'agent-blocks', 'chatgpt-provider', 'scanner-intake-watchdog',
-    'toyota-receptionist', 'sydney-receptionist',
+    'toyota-receptionist', 'mazda-receptionist', 'sydney-receptionist',
 }
 
 

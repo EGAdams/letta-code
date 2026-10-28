@@ -1,8 +1,8 @@
 """The bridge to Sydney's receptionist_team sidecar.
 
 Sydney is Toyota's engine run as ``--agent sydney`` on :8769, so her bridge is
-the same IReceptionistSidecar implementation as Toyota's at a different
-address. What is worth asserting: her turns reach
+the same SidecarBridge (an IReceptionistSidecar) as Toyota's and Mazda's at
+a different address. What is worth asserting: her turns reach
 HER port, every error names HER and HER unit (a "start toyota-receptionist"
 hint in Sydney's box would send someone to restart the wrong service), the
 envelope is Toyota's exactly, and she is listed and routed like any agent.
@@ -15,7 +15,7 @@ import urllib.error
 import sydney_service
 import toyota_service
 from monitoring import agent_list
-from receptionist_sidecar import HttpReceptionistSidecar, ReceptionistTurnRequest
+from receptionist_sidecar import SidecarBridge, SidecarTurnRequest
 
 
 def _recording_opener(*records):
@@ -39,8 +39,8 @@ def _recording_opener(*records):
 
 
 def _turn(opener):
-    request = ReceptionistTurnRequest(text='ask the mechanic why Toyota is slow')
-    return list(sydney_service.SYDNEY.stream_turn(request, opener=opener))
+    request = SidecarTurnRequest(text='ask the mechanic why Toyota is slow')
+    return list(sydney_service.stream_sydney_turn(request, opener=opener))
 
 
 def test_her_turns_go_to_her_own_port():
@@ -79,15 +79,24 @@ def test_a_stream_without_a_result_names_her():
 
 
 def test_toyota_and_sydney_are_one_implementation_at_two_addresses():
-    assert type(sydney_service.SYDNEY) is type(toyota_service.TOYOTA) is HttpReceptionistSidecar
-    assert sydney_service.SYDNEY.address.url != toyota_service.TOYOTA.address.url
-    assert toyota_service.ToyotaTurnRequest is ReceptionistTurnRequest
+    import mazda_receptionist_service
+    bridges = (sydney_service.BRIDGE, toyota_service.BRIDGE, mazda_receptionist_service.BRIDGE)
+    assert all(type(b) is SidecarBridge for b in bridges)
+    assert len({b.base_url for b in bridges}) == 3
+    assert sydney_service.BRIDGE.unit == 'sydney-receptionist'
 
 
 def test_both_turn_routes_go_through_the_one_route_table():
     from http_app.post_routes import RECEPTIONIST_TURN_ROUTES
-    assert RECEPTIONIST_TURN_ROUTES['/api/sydney-turn'] is sydney_service.SYDNEY
-    assert RECEPTIONIST_TURN_ROUTES['/api/receptionist-turn'] is toyota_service.TOYOTA
+    seen = []
+    original = sydney_service.stream_sydney_turn
+    sydney_service.stream_sydney_turn = lambda request: seen.append(request.text) or iter(())
+    try:
+        list(RECEPTIONIST_TURN_ROUTES['/api/sydney-turn'](SidecarTurnRequest(text='hi')))
+    finally:
+        sydney_service.stream_sydney_turn = original
+    assert seen == ['hi']
+    assert set(RECEPTIONIST_TURN_ROUTES) == {'/api/receptionist-turn', '/api/sydney-turn'}
 
 
 def _listing(listed):

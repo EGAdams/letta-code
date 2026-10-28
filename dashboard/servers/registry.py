@@ -219,6 +219,7 @@ def build_server_specs(
     logger_api_startup_log: str,
     toyota_service_url: str,
     sydney_service_url: str = 'http://127.0.0.1:8769',
+    mazda_service_url: str = 'http://127.0.0.1:8768',
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
 
@@ -316,6 +317,18 @@ def build_server_specs(
                  'and shared LanceDB memory as Toyota. RED means her Agent '
                  'Management box cannot answer; she has no Letta fallback. '
                  'First start takes ~30s while the sentence-transformers model loads.',
+        ),
+        ServerSpec(
+            key='mazda-receptionist',
+            name='Mazda Receptionist',
+            probe=HttpProbe(health_url=f'{mazda_service_url}/health'),
+            log_file='/tmp/mazda_receptionist.log',
+            note='receptionist_team sidecar (agent_blocks/lancedb_memory, '
+                 'loopback :8768) — the brain behind Mazda\'s page: her '
+                 'document-verification prompt, LanceDB memory shared with '
+                 'Toyota, and her own specialists. RED means her page silently '
+                 'falls back to her Letta brain. First start takes ~30s while '
+                 'the sentence-transformers model loads.',
         ),
         ServerSpec(
             key='mcp-proxy',

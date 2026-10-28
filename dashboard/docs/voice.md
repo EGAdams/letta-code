@@ -2,6 +2,14 @@
 
 Detail for `voice/`, `router/`, and the voice-related JS. Summarized in `../CLAUDE.md`.
 
+Toyota's receptionist sidecar streams public `delta` records. A final `reply`
+with `streamed: true` is a persisted snapshot and the shared sidecar bridge
+suppresses it to avoid repeating speech. Control lines remain private until
+the sidecar's routing/workflow policy validates the complete reply. Every Groq
+token-limit response now hands off immediately to the configured OpenAI backup.
+See `~/agent_blocks/lancedb_memory/receptionist_team/LATENCY.md` for the policy
+and request-correlated `[turn-timing]` diagnostics.
+
 ## Phone / microphone access (HTTPS required)
 
 `getUserMedia()` (mic capture) only works in a secure context (https or localhost). Plain

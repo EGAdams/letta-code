@@ -45,6 +45,16 @@ def _drain(records, **kw):
 class TestTranslationMatchesTheBrowsersEnvelope:
     """The browser parses one wire format; these records must look like Letta's."""
 
+    def test_streamed_deltas_arrive_once_without_repeating_the_final_snapshot(self):
+        out = _drain([
+            {'kind': 'delta', 'text': 'Hello. '},
+            {'kind': 'delta', 'text': 'All done.'},
+            {'kind': 'reply', 'text': 'Hello. All done.', 'streamed': True},
+            {'kind': 'result', 'session': 'toyota'},
+        ])
+        assert [r.event.get('content') for r in out[:-1]] == ['Hello. ', 'All done.']
+        assert out[-1].event['type'] == 'result'
+
     def test_a_reply_becomes_an_assistant_message_event(self):
         out = _drain([
             {'kind': 'reply', 'text': 'About $4,200.'},

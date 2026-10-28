@@ -22,76 +22,63 @@ Records are translated into the same NDJSON envelope
 ``/api/letta-code-stream`` emits, so the browser reuses its existing streaming
 adapter and parses one wire format rather than two.
 
-The bridge itself is ``receptionist_sidecar.HttpReceptionistSidecar``, an
-``IReceptionistSidecar``; this module is Toyota's address on it plus the one
-thing only she has, a Letta brain to fall back on (``preferred_backend``).
-Sydney is the same sidecar at another address -- see ``sydney_service.py``.
+The mechanics all live in ``receptionist_sidecar.py``, shared with Mazda, who
+has a sidecar of her own since she stopped being a package and became a
+profile. This module is now only what is Toyota's: her URL, her unit, her
+override, and the names the rest of the dashboard imports.
 """
 
 from __future__ import annotations
 
 import os
-import urllib.request
+import urllib.error
+import urllib.request  # noqa: F401  (tests monkeypatch urlopen through this name)
 from collections.abc import Iterator
 from typing import Any
 
 from letta_code.streaming import ConversationStreamRecord
-
 from receptionist_sidecar import (
-    TURN_TIMEOUT,
-    HttpReceptionistSidecar,
-    IReceptionistSidecar,
-    ReceptionistTurnRequest,
-    SidecarAddress,
-    translate,
+    DEFAULT_TURN_TIMEOUT,
+    MAX_TURN_CHARS as _MAX_TURN_CHARS,
+    SidecarBridge,
+    SidecarTurnRequest,
 )
 
-TOYOTA_SERVICE_URL = os.environ.get("TOYOTA_SERVICE_URL", "http://127.0.0.1:8767")
+TOYOTA_SERVICE_URL = os.environ.get('TOYOTA_SERVICE_URL', 'http://127.0.0.1:8767')
+TOYOTA_TURN_TIMEOUT = DEFAULT_TURN_TIMEOUT
 
-TOYOTA_TURN_TIMEOUT = TURN_TIMEOUT
-
-# Historical name; the request shape is the same for every receptionist.
-ToyotaTurnRequest = ReceptionistTurnRequest
-
-TOYOTA: IReceptionistSidecar = HttpReceptionistSidecar(
-    SidecarAddress(url=TOYOTA_SERVICE_URL, name="Toyota", unit="toyota-receptionist")
+BRIDGE = SidecarBridge(
+    name='Toyota',
+    base_url=TOYOTA_SERVICE_URL,
+    unit='toyota-receptionist',
+    backend_env='TOYOTA_CONVERSATION_BACKEND',
+    turn_timeout=TOYOTA_TURN_TIMEOUT,
 )
 
 
-def _translate(record: dict[str, Any]) -> ConversationStreamRecord | None:
-    return translate(record, TOYOTA.address.name)
+class ToyotaTurnRequest(SidecarTurnRequest):
+    """One turn of Toyota's conversation. Shape and validation are shared."""
 
 
 def health(timeout: float = 3) -> dict[str, Any]:
     """Liveness for the Server Management tab. Never raises."""
-    return TOYOTA.health(timeout)
+    return BRIDGE.health(timeout=timeout)
 
 
 def preferred_backend(probe=health) -> dict[str, Any]:
     """Which brain Toyota's box should use on this page load.
 
-    The sidecar is preferred when it answers, so the memory/finance Toyota is
-    the default -- but a dead sidecar silently falls back to the Letta
-    streaming brain instead of leaving Toyota mute. Set
-    ``TOYOTA_CONVERSATION_BACKEND=letta`` to pin the old brain regardless.
-
-    Probing is cheap: a refused loopback connection returns immediately.
+    See ``SidecarBridge.preferred_backend``. ``TOYOTA_CONVERSATION_BACKEND=letta``
+    pins the old brain without probing.
     """
-    forced = os.environ.get("TOYOTA_CONVERSATION_BACKEND", "").strip().lower()
-    if forced == "letta":
-        return {"backend": "letta", "forced": True, "service": None}
-
-    status = probe(timeout=1.5)
-    if status.get("ok"):
-        return {"backend": "receptionist-team", "forced": False, "service": status}
-    return {"backend": "letta", "forced": False, "service": status}
+    return BRIDGE.preferred_backend(probe=probe)
 
 
 def stream_toyota_turn(
-    request: ReceptionistTurnRequest,
+    request: ToyotaTurnRequest,
     *,
     timeout: float = TOYOTA_TURN_TIMEOUT,
     opener=urllib.request.urlopen,
 ) -> Iterator[ConversationStreamRecord]:
     """Yield one turn's records, proxied from the sidecar as they arrive."""
-    return TOYOTA.stream_turn(request, timeout=timeout, opener=opener)
+    return BRIDGE.stream(request, timeout=timeout, opener=opener)

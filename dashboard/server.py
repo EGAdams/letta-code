@@ -3011,6 +3011,7 @@ from servers.registry import build_server_specs as _build_server_specs  # noqa: 
 from servers.registry import as_configs as _server_configs  # noqa: E402
 import toyota_service  # noqa: E402
 import sydney_service  # noqa: E402
+import mazda_receptionist_service  # noqa: E402
 
 SERVER_SPECS = _build_server_specs(
     port=PORT,
@@ -3021,6 +3022,7 @@ SERVER_SPECS = _build_server_specs(
     logger_api_startup_log=LOGGER_API_STARTUP_LOG,
     toyota_service_url=toyota_service.TOYOTA_SERVICE_URL,
     sydney_service_url=sydney_service.SYDNEY_SERVICE_URL,
+    mazda_service_url=mazda_receptionist_service.MAZDA_SERVICE_URL,
 )
 SERVERS = _server_configs(SERVER_SPECS)
 
@@ -3547,6 +3549,10 @@ RESTART_REGISTRY = RestartRegistry([
         key='sydney-receptionist',
         handler=lambda: _restart_user_unit('sydney-receptionist',
                                            'sydney-receptionist.service')),
+    RestartCommand(
+        key='mazda-receptionist',
+        handler=lambda: _restart_user_unit('mazda-receptionist',
+                                           'mazda-receptionist.service')),
     RestartCommand(
         key='letta',
         handler=lambda: _restart_remote(

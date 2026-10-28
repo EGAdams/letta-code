@@ -1,112 +1,112 @@
-"""IReceptionistSidecar -- one receptionist_team sidecar, as the dashboard sees it.
+"""One bridge to a ``receptionist_team`` sidecar, reused per receptionist.
 
-Toyota and Sydney are the same ``receptionist_team`` engine in
-``~/agent_blocks/lancedb_memory``, run as two sidecars on two loopback ports
-(``--agent toyota`` on :8767, ``--agent sydney`` on :8769). The dashboard's
-side of either one is identical: probe ``/health``, POST ``/turn``, translate
-the NDJSON records into the envelope ``/api/letta-code-stream`` emits. Only the
-address differs.
+``agent_blocks/lancedb_memory/receptionist_team/service.py`` serves Toyota and
+Mazda from one codebase, each on her own loopback port. This module is the
+dashboard's half of that: the request shape, the record translation, the
+liveness probe and the backend choice -- everything that is identical for both
+of them. ``toyota_service.py`` and ``mazda_receptionist_service.py`` are thin
+profile modules over it.
 
-So the routes depend on ``IReceptionistSidecar`` and the agent list on
-``monitoring.agent_list.IListedAgent``; ``HttpReceptionistSidecar`` is the one implementation, and
-``toyota_service.py`` / ``sydney_service.py`` are each just an address handed
-to it. A third receptionist is a third address, not a third copy of this code.
+It exists because the NDJSON record format is a **contract across two
+repositories** (see ``receptionist_team/CLAUDE.md``). Two copies of
+``_translate`` would be two things to keep in step with that contract, and the
+second copy is the one that would quietly fall behind.
 
-**Loopback only, and that is load-bearing.** A delegated turn runs Claude with
-``bypassPermissions`` and real Bash against live data. This server is
-0.0.0.0-bound and Tailscale-served to a phone; a sidecar must stay
-unreachable from the network and be spoken to only from here.
+**Sidecars are spoken to over loopback only, and that is load-bearing.** A
+delegated turn runs Claude with ``bypassPermissions`` and real Bash against the
+live rol_finances MySQL database. This server is 0.0.0.0-bound and
+Tailscale-served to a phone; the sidecars must stay unreachable from the
+network and be reached only from here.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from letta_code.streaming import ConversationStreamRecord
-from monitoring.agent_list import IListedAgent  # noqa: F401  (re-exported for the sidecar modules)
+from monitoring.agent_list import IListedAgent  # noqa: F401  (re-exported for the profile modules)
+
+MAX_TURN_CHARS = 8000
+_FORBIDDEN_INPUT_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 # A delegated role can grind for minutes. The acknowledgment arrives in the
-# first second and then the socket is silent until the role finishes, so this
-# is a read timeout across that whole gap, not a per-turn budget.
-TURN_TIMEOUT = 1770
-
-_MAX_TURN_CHARS = 8000
-_FORBIDDEN_INPUT_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# first second and then the socket is silent until the role finishes, so this is
+# a read timeout across that whole gap, not a per-turn budget.
+DEFAULT_TURN_TIMEOUT = 1770
 
 
-class ReceptionistTurnRequest(BaseModel):
+class SidecarTurnRequest(BaseModel):
     """Untrusted browser request for one turn of a receptionist's conversation.
 
     ``agent`` and ``conversation_id`` are accepted but not forwarded: a sidecar
     serves exactly one session and reports which one answered. They exist so
     the browser can post the same body shape it posts to
-    ``/api/letta-code-stream`` and keep using one adapter.
-    ``request_id`` is forwarded unchanged for durable operation replay protection.
+    ``/api/letta-code-stream`` and keep using one adapter. ``request_id`` is
+    forwarded unchanged for durable operation replay protection.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra='forbid')
 
-    text: str = Field(min_length=1, max_length=_MAX_TURN_CHARS)
+    text: str = Field(min_length=1, max_length=MAX_TURN_CHARS)
     agent: str | None = None
     conversation_id: str | None = None
-    request_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,100}$")
+    request_id: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{8,100}$')
 
-    @field_validator("text")
+    @field_validator('text')
     @classmethod
     def safe_text(cls, value: str) -> str:
-        value = value.replace("\r\n", "\n").replace("\r", "\n")
+        value = value.replace('\r\n', '\n').replace('\r', '\n')
         if not value.strip():
-            raise ValueError("message is empty")
+            raise ValueError('message is empty')
         if _FORBIDDEN_INPUT_RE.search(value):
-            raise ValueError("message contains unsupported control characters")
+            raise ValueError('message contains unsupported control characters')
         return value
 
 
-class SidecarAddress(BaseModel):
-    """Where one receptionist's sidecar lives, and how errors name it."""
-
-    model_config = ConfigDict(frozen=True)
-
-    url: str        # loopback base URL, e.g. http://127.0.0.1:8767
-    name: str       # "Toyota" -- what an error in her box calls her
-    unit: str       # "toyota-receptionist" -- what to start in Server Management
-
-
-Opener = Callable[..., Any]
-
-
 class IReceptionistSidecar(Protocol):
-    """What a route needs from a receptionist's sidecar, and nothing more."""
+    """What a profile module needs from one receptionist's sidecar.
 
-    @property
-    def address(self) -> SidecarAddress: ...
+    ``SidecarBridge`` is the implementation; ``toyota_service.BRIDGE``,
+    ``mazda_receptionist_service.BRIDGE`` and ``sydney_service.BRIDGE`` are
+    three addresses on it, typed against this rather than against the class.
+    """
 
-    def health(self, timeout: float = 3) -> dict[str, Any]:
-        """Liveness for Server Management and backend choice. Never raises."""
-        ...
+    name: str
+    unit: str
 
-    def stream_turn(
+    def health(self, timeout: float = 3) -> dict[str, Any]: ...
+
+    def preferred_backend(self, probe=None) -> dict[str, Any]: ...
+
+    def stream(
         self,
-        request: ReceptionistTurnRequest,
+        request: SidecarTurnRequest,
         *,
-        timeout: float = TURN_TIMEOUT,
-        opener: Opener | None = None,
-    ) -> Iterator[ConversationStreamRecord]:
-        """One turn's records in the browser's envelope. Fails closed, never raises."""
-        ...
+        timeout: float | None = None,
+        opener=urllib.request.urlopen,
+    ) -> Iterator[ConversationStreamRecord]: ...
+
+
+class IReceptionistTurnStream(Protocol):
+    """One receptionist's turn endpoint, as a route sees it: a request in,
+    the browser's envelope out. Never raises; every failure is a record."""
+
+    def __call__(self, request: SidecarTurnRequest) -> Iterator[ConversationStreamRecord]: ...
 
 
 class SidecarAgentListing(BaseModel):
     """A sidecar receptionist's row in /api/agents. Not a Letta agent.
 
-    Satisfies monitoring.agent_list.IListedAgent, the interface its consumer owns.
+    Satisfies monitoring.agent_list.IListedAgent, the interface its consumer
+    owns, so that module never learns what kind of agent produced the row.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -116,101 +116,129 @@ class SidecarAgentListing(BaseModel):
     model: str
 
     def as_agent_row(self) -> dict[str, Any]:
-        return {"id": self.agent_id, "name": self.name, "model": self.model, "letta": False}
+        return {'id': self.agent_id, 'name': self.name, 'model': self.model, 'letta': False}
 
 
 def _assistant_event(text: str) -> ConversationStreamRecord:
     return ConversationStreamRecord.provider_event(
-        {"message_type": "assistant_message", "content": text}
-    )
-
-
-def _result_event(session: str | None) -> ConversationStreamRecord:
-    return ConversationStreamRecord.provider_event(
-        {"type": "result", "conversation_id": session}
-    )
+        {'message_type': 'assistant_message', 'content': text})
 
 
 def translate(record: dict[str, Any], name: str) -> ConversationStreamRecord | None:
     """Map one sidecar record onto the browser's envelope.
 
-    Unknown kinds are dropped rather than guessed at -- everything on the
-    voice path fails closed, and a record we don't understand must not become
-    speech.
+    Unknown kinds are dropped rather than guessed at -- everything on the voice
+    path stops safely rather than guessing, and a record we don't understand
+    must not become speech.
     """
-    kind = record.get("kind")
-    text = record.get("text") or ""
-    if kind in ("acknowledgment", "reply"):
+    kind = record.get('kind')
+    text = record.get('text') or ''
+    if kind == 'reply' and record.get('streamed'):
+        return None  # Its text was already delivered as deltas, once.
+    if kind in ('acknowledgment', 'delta', 'reply'):
         return _assistant_event(text) if text.strip() else None
-    if kind == "result":
-        return _result_event(record.get("session"))
-    if kind == "work" and isinstance(record.get("work"), dict):
-        return ConversationStreamRecord.provider_event({"type": "tool_result", "name": "receptionist_work", "work": record["work"]})
-    if kind == "handoff" and isinstance(record.get("handoff"), dict):
-        # The receptionist asked the browser to open another agent's window.
-        return ConversationStreamRecord.provider_event({"type": "tool_result", "name": "agent_handoff", "handoff": record["handoff"]})
-    if kind == "error":
-        return ConversationStreamRecord.failure(text[-1000:] or f"{name} failed")
+    if kind == 'result':
+        return ConversationStreamRecord.provider_event(
+            {'type': 'result', 'conversation_id': record.get('session')})
+    if kind == 'work' and isinstance(record.get('work'), dict):
+        return ConversationStreamRecord.provider_event(
+            {'type': 'tool_result', 'name': 'receptionist_work', 'work': record['work']})
+    if kind == 'handoff' and isinstance(record.get('handoff'), dict):
+        # She asked the browser to open another agent's window.
+        return ConversationStreamRecord.provider_event(
+            {'type': 'tool_result', 'name': 'agent_handoff', 'handoff': record['handoff']})
+    if kind == 'error':
+        return ConversationStreamRecord.failure(text[-1000:] or f'{name} failed')
     return None
 
 
-class HttpReceptionistSidecar:
-    """IReceptionistSidecar over loopback HTTP. One instance per receptionist."""
+class SidecarBridge:
+    """One receptionist's sidecar, as the dashboard sees it.
 
-    def __init__(self, address: SidecarAddress) -> None:
-        self._address = address
+    Holds only what differs between them: her name, her loopback URL, the
+    systemd unit to name when she is down, and the environment variable that
+    pins her box to the Letta brain instead.
+    """
 
-    @property
-    def address(self) -> SidecarAddress:
-        return self._address
+    def __init__(
+        self,
+        name: str,
+        base_url: str,
+        unit: str,
+        backend_env: str,
+        turn_timeout: float = DEFAULT_TURN_TIMEOUT,
+    ) -> None:
+        self.name = name
+        self.base_url = base_url
+        self.unit = unit
+        self.backend_env = backend_env
+        self.turn_timeout = turn_timeout
 
     def health(self, timeout: float = 3) -> dict[str, Any]:
+        """Liveness for the Server Management tab. Never raises."""
         try:
-            # Looked up at call time, so a test can monkeypatch urlopen.
-            with urllib.request.urlopen(
-                f"{self._address.url}/health", timeout=timeout
-            ) as response:
+            with urllib.request.urlopen(f'{self.base_url}/health', timeout=timeout) as response:
                 if response.status != 200:
-                    return {"ok": False, "error": f"HTTP {response.status}"}
-                payload = json.loads(response.read().decode("utf-8"))
+                    return {'ok': False, 'error': f'HTTP {response.status}'}
+                payload = json.loads(response.read().decode('utf-8'))
         except urllib.error.URLError as exc:
-            return {"ok": False, "error": f"{exc.reason}"}
+            return {'ok': False, 'error': f'{exc.reason}'}
         except Exception as exc:
-            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
         if not isinstance(payload, dict):
-            return {"ok": False, "error": "malformed health payload"}
+            return {'ok': False, 'error': 'malformed health payload'}
         return payload
 
-    def stream_turn(
+    def preferred_backend(self, probe=None) -> dict[str, Any]:
+        """Which brain her box should use on this page load.
+
+        The sidecar is preferred when it answers, so the memory receptionist is
+        the default -- but a dead sidecar silently falls back to the Letta
+        streaming brain instead of leaving her mute. Set her ``backend_env`` to
+        ``letta`` to pin the old brain regardless.
+
+        Probing is cheap: a refused loopback connection returns immediately.
+        """
+        probe = probe or self.health
+        if os.environ.get(self.backend_env, '').strip().lower() == 'letta':
+            return {'backend': 'letta', 'forced': True, 'service': None}
+
+        status = probe(timeout=1.5)
+        if status.get('ok'):
+            return {'backend': 'receptionist-team', 'forced': False, 'service': status}
+        return {'backend': 'letta', 'forced': False, 'service': status}
+
+    def stream(
         self,
-        request: ReceptionistTurnRequest,
+        request: SidecarTurnRequest,
         *,
-        timeout: float = TURN_TIMEOUT,
-        opener: Opener | None = None,
+        timeout: float | None = None,
+        opener=urllib.request.urlopen,
     ) -> Iterator[ConversationStreamRecord]:
-        name, unit = self._address.name, self._address.unit
-        open_url = opener or urllib.request.urlopen
-        body = json.dumps({"text": request.text, **({"request_id": request.request_id} if request.request_id else {})}).encode("utf-8")
+        """Yield one turn's records, proxied from the sidecar as they arrive."""
+        body = json.dumps({
+            'text': request.text,
+            **({'request_id': request.request_id} if request.request_id else {}),
+        }).encode('utf-8')
         http_request = urllib.request.Request(
-            f"{self._address.url}/turn",
+            f'{self.base_url}/turn',
             data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            headers={'Content-Type': 'application/json'},
+            method='POST',
         )
 
         try:
-            response = open_url(http_request, timeout=timeout)
+            response = opener(http_request, timeout=timeout or self.turn_timeout)
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:500]
+            detail = exc.read().decode('utf-8', 'replace')[:500]
             yield ConversationStreamRecord.failure(
-                f"{name}'s receptionist service refused the turn: {detail or exc.reason}"
-            )
+                f"{self.name}'s receptionist service refused the turn: "
+                f'{detail or exc.reason}')
             return
         except urllib.error.URLError as exc:
             yield ConversationStreamRecord.failure(
-                f"{name}'s receptionist service isn't reachable "
-                f"({exc.reason}). Start {unit} in Server Management."
-            )
+                f"{self.name}'s receptionist service isn't reachable "
+                f'({exc.reason}). Start {self.unit} in Server Management.')
             return
 
         saw_terminal = False
@@ -226,22 +254,21 @@ class HttpReceptionistSidecar:
                         continue
                     if not isinstance(record, dict):
                         continue
-                    translated = translate(record, name)
+                    translated = translate(record, self.name)
                     if translated is None:
                         continue
-                    if translated.type == "error" or record.get("kind") == "result":
+                    if translated.type == 'error' or record.get('kind') == 'result':
                         saw_terminal = True
                     yield translated
                     if saw_terminal:
                         return
         except TimeoutError:
-            yield ConversationStreamRecord.failure(f"{name} took too long to answer")
+            yield ConversationStreamRecord.failure(f'{self.name} took too long to answer')
             return
         except OSError as exc:
-            yield ConversationStreamRecord.failure(f"{name}'s stream broke: {exc}")
+            yield ConversationStreamRecord.failure(f"{self.name}'s stream broke: {exc}")
             return
 
         if not saw_terminal:
             yield ConversationStreamRecord.failure(
-                f"{name}'s stream ended without a result"
-            )
+                f"{self.name}'s stream ended without a result")
