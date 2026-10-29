@@ -96,7 +96,7 @@ def test_both_turn_routes_go_through_the_one_route_table():
     finally:
         sydney_service.stream_sydney_turn = original
     assert seen == ['hi']
-    assert set(RECEPTIONIST_TURN_ROUTES) == {'/api/receptionist-turn', '/api/sydney-turn'}
+    assert set(RECEPTIONIST_TURN_ROUTES) == {'/api/receptionist-turn', '/api/sydney-turn', '/api/cashy-turn'}
 
 
 def test_compact_asks_her_own_sidecar_and_passes_its_reply_back():
@@ -116,14 +116,16 @@ def test_compact_against_a_dead_sidecar_names_her_unit():
 
 def test_the_compact_route_reaches_each_receptionist():
     from http_app.post_routes import RECEPTIONIST_COMPACTS
-    original = (toyota_service.compact, sydney_service.compact)
+    import cashy_service
+    original = (toyota_service.compact, sydney_service.compact, cashy_service.compact)
     toyota_service.compact = lambda: {'ok': True, 'who': 'toyota'}
     sydney_service.compact = lambda: {'ok': True, 'who': 'sydney'}
+    cashy_service.compact = lambda: {'ok': True, 'who': 'cashy'}
     try:
         assert {k: f()['who'] for k, f in RECEPTIONIST_COMPACTS.items()} == {
-            'toyota': 'toyota', 'sydney': 'sydney'}
+            'toyota': 'toyota', 'sydney': 'sydney', 'cashy': 'cashy'}
     finally:
-        toyota_service.compact, sydney_service.compact = original
+        toyota_service.compact, sydney_service.compact, cashy_service.compact = original
 
 
 def _listing(listed):

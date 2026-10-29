@@ -11,6 +11,7 @@ import {
   AgentWindowHandoff,
   BrowserAgentWindows,
   BrowserSpeechRecognitionListener,
+  CASHY_AGENT_ID,
   ChatDetailRenderer,
   EditableDarkNoteSurface,
   InputOptionsRenderer,
@@ -157,6 +158,23 @@ export function createAgentDetailRenderers({
         { http, storage, doc, win },
       );
     },
+    // Cashy gets the same desk. She is not on the Pipecat voice pilot, so
+    // she always records on the default path.
+    [CASHY_AGENT_ID]: (target) =>
+      deskFactory(
+        {
+          name: "Cashy",
+          agentId: CASHY_AGENT_ID,
+          boxId: target,
+          conversationAgent: new StreamingLettaAgentAdapter({
+            storage,
+            endpoint: "/api/cashy-turn",
+          }),
+          intentPolicy: wakePhraseIntentPolicy("cashy"),
+          pipecatSelected: () => false,
+        },
+        { http, storage, doc, win },
+      ),
   };
   const desks = new Map();
   const deskFor = (id, target) => {

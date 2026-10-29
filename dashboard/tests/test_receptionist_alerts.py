@@ -79,5 +79,5 @@ def test_acknowledge_goes_to_the_named_receptionist():
     assert out['acknowledged'] == 1 and sydney.acked == [['a1']]
 
 
-def test_default_sources_are_toyota_and_sydney():
-    assert sorted(receptionist_alerts.sources()) == ['sydney', 'toyota']
+def test_default_sources_are_the_three_sidecars():
+    assert sorted(receptionist_alerts.sources()) == ['cashy', 'sydney', 'toyota']

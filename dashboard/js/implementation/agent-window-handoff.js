@@ -28,6 +28,13 @@ export const MAZDA_AGENT_ID = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e";
  */
 export const SYDNEY_AGENT_ID = "agent-sydney";
 
+/**
+ * Cashy's id in /api/agents — keep in step with cashy_service.CASHY_AGENT_ID.
+ * The banking navigation agent (agent_blocks/adws/cashy); her turns go to
+ * /api/cashy-turn.
+ */
+export const CASHY_AGENT_ID = "agent-cashy";
+
 /** The Home screen's window name, so Mazda can find her way back to it. */
 export const FRONT_DESK_WINDOW = "rol-front-desk";
 
@@ -40,6 +47,10 @@ export const AGENT_WINDOWS = Object.freeze({
   sydney: {
     url: `/?agent=${SYDNEY_AGENT_ID}&view=input-options`,
     windowName: "rol-agent-sydney",
+  },
+  cashy: {
+    url: `/?agent=${CASHY_AGENT_ID}&view=input-options`,
+    windowName: "rol-agent-cashy",
   },
   toyota: { url: "/", windowName: FRONT_DESK_WINDOW },
 });

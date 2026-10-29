@@ -76,7 +76,7 @@ class ReceptionistCompactRequest(BaseModel):
 
     model_config = ConfigDict(extra='forbid')
 
-    agent: Literal['toyota', 'sydney']
+    agent: Literal['toyota', 'sydney', 'cashy']
 
 
 class ReceptionistAlertAckRequest(BaseModel):
@@ -84,7 +84,7 @@ class ReceptionistAlertAckRequest(BaseModel):
 
     model_config = ConfigDict(extra='forbid')
 
-    agent: Literal['toyota', 'sydney']
+    agent: Literal['toyota', 'sydney', 'cashy']
     ids: list[str] | None = Field(default=None, max_length=200)
 
 

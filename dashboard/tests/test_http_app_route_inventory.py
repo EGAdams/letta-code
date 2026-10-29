@@ -66,6 +66,7 @@ POST_ROUTES = [
     '/api/mazda-turn', '/api/receptionist-alerts/ack', '/api/receptionist-compact', '/api/receptionist-intent',
     '/api/receptionist-turn',
     '/api/sydney-turn',
+    '/api/cashy-turn',
     '/api/reprocess-report', '/api/route-detect',
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',

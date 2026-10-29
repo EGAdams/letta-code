@@ -143,6 +143,7 @@ DIRECT_SERVICES = {
     'letta_code.streaming': ('stream_letta_code_message',),
     'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health', 'compact'),
     'sydney_service': ('stream_sydney_turn', 'health', 'compact'),
+    'cashy_service': ('stream_cashy_turn', 'health', 'compact'),
     'mazda_receptionist_service': ('stream_turn', 'stream_mazda_receptionist_turn',
                                    'preferred_backend', 'health'),
     'monitoring.log_files': ('log_activity_health',),

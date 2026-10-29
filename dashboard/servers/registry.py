@@ -219,6 +219,7 @@ def build_server_specs(
     logger_api_startup_log: str,
     toyota_service_url: str,
     sydney_service_url: str = 'http://127.0.0.1:8769',
+    cashy_service_url: str = 'http://127.0.0.1:8770',
     mazda_service_url: str = 'http://127.0.0.1:8768',
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
@@ -317,6 +318,18 @@ def build_server_specs(
                  'and shared LanceDB memory as Toyota. RED means her Agent '
                  'Management box cannot answer; she has no Letta fallback. '
                  'First start takes ~30s while the sentence-transformers model loads.',
+        ),
+        ServerSpec(
+            key='cashy-agent',
+            name='Cashy Banking Agent',
+            probe=HttpProbe(health_url=f'{cashy_service_url}/health'),
+            log_file='/tmp/cashy_agent.log',
+            note='Cashy\'s sidecar (agent_blocks/adws/adw_cashy_service.py, '
+                 'loopback :8770) -- the banking navigation agent: reads bank '
+                 'pages over the debug Chrome\'s DevTools port (9222) and '
+                 'never signs in for you. RED means her Agent Management box '
+                 'cannot answer; she has no Letta fallback. Her /health also '
+                 'says whether the debug Chrome is up.',
         ),
         ServerSpec(
             key='mazda-receptionist',

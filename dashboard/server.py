@@ -3011,6 +3011,7 @@ from servers.registry import build_server_specs as _build_server_specs  # noqa: 
 from servers.registry import as_configs as _server_configs  # noqa: E402
 import toyota_service  # noqa: E402
 import sydney_service  # noqa: E402
+import cashy_service  # noqa: E402
 import mazda_receptionist_service  # noqa: E402
 
 SERVER_SPECS = _build_server_specs(
@@ -3022,6 +3023,7 @@ SERVER_SPECS = _build_server_specs(
     logger_api_startup_log=LOGGER_API_STARTUP_LOG,
     toyota_service_url=toyota_service.TOYOTA_SERVICE_URL,
     sydney_service_url=sydney_service.SYDNEY_SERVICE_URL,
+    cashy_service_url=cashy_service.CASHY_SERVICE_URL,
     mazda_service_url=mazda_receptionist_service.MAZDA_SERVICE_URL,
 )
 SERVERS = _server_configs(SERVER_SPECS)
@@ -3549,6 +3551,10 @@ RESTART_REGISTRY = RestartRegistry([
         key='sydney-receptionist',
         handler=lambda: _restart_user_unit('sydney-receptionist',
                                            'sydney-receptionist.service')),
+    # Cashy's sidecar on :8770; no model to load, so it answers at once.
+    RestartCommand(
+        key='cashy-agent',
+        handler=lambda: _restart_user_unit('cashy-agent', 'cashy-agent.service')),
     RestartCommand(
         key='mazda-receptionist',
         handler=lambda: _restart_user_unit('mazda-receptionist',
@@ -4273,7 +4279,7 @@ def _agent_list_deps():
         cache_lock=_agent_list_cache_lock,
         cache_ttl=AGENT_LIST_CACHE_TTL,
         build_agent_list=build_agent_list,
-        listed_agents=(sydney_service.LISTING,),
+        listed_agents=(sydney_service.LISTING, cashy_service.LISTING),
     )
 
 
