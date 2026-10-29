@@ -49,7 +49,6 @@ import {
   readStoredFindings,
   readSubmitResponse,
   readVendorKeysResponse,
-  validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
 import {
   buildMazdaModePayload,
@@ -58,10 +57,7 @@ import {
   readMazdaModeResponse,
   summarizeMazdaMode,
 } from "../abstract/mazda-mode.interface.js";
-import {
-  manualEntryFormRegistry,
-  verifiedTransactionRowsRegistry,
-} from "../abstract/mounted-widget-registry.js";
+import { manualEntryFormRegistry } from "../abstract/mounted-widget-registry.js";
 import {
   buildReceiptReadPayload,
   FILL_SHAPE,
@@ -71,15 +67,10 @@ import {
   receiptReadModelLabel,
   summarizeReceiptReread,
 } from "../abstract/receipt-read.interface.js";
-import {
-  buildStatementEntryPayload,
-  readStatementEntryResponse,
-  summarizeExcludedStatementRows,
-  summarizeStatementStore,
-  validateStatementRow,
-} from "../abstract/statement-breakup.interface.js";
+import { summarizeExcludedStatementRows } from "../abstract/statement-breakup.interface.js";
 import { indexAfterRemoval } from "../abstract/verified-transaction-actions.interface.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
+import { ManualEntrySaveWorkflow } from "./manual-entry-save-workflow.js";
 import { ReceiptReadControls } from "./receipt-read-controls.js";
 import { mountTerminal } from "./xterm-terminal-launcher.js";
 
@@ -99,6 +90,7 @@ export class ManualEntryForm {
   }) {
     if (!root) throw new TypeError("ManualEntryForm requires a mount element");
     this.http = http;
+    this._saveWorkflow = new ManualEntrySaveWorkflow(this);
     this.root = root;
     this.doc = doc;
     this._mountTerminal = mountTerminalFn;
@@ -1179,177 +1171,11 @@ export class ManualEntryForm {
   }
 
   async _saveAll() {
-    this._captureCurrentItem();
-    // Which rules apply is decided by what the document IS, not by how many
-    // rows are on screen: a statement's credits are legitimately negative and
-    // its rows are stored by a different tool.
-    const validate = this.statementHeader
-      ? validateStatementRow
-      : validateManualEntry;
-    const label = this.statementHeader ? "transaction" : "expense";
-    const invalidIndex = this.items.findIndex((item) => !validate(item).valid);
-    if (invalidIndex !== -1) {
-      this.currentIndex = invalidIndex;
-      this._renderCurrentItem();
-      this._renderErrors(validate(this.items[invalidIndex]).errors);
-      this._setStatus(
-        `Fix ${label} ${invalidIndex + 1} of ${this.items.length} before saving.`,
-      );
-      return;
-    }
-    if (this.statementHeader) {
-      await this._saveStatement();
-      return;
-    }
-    const intakeRef = {
-      imagePath: this.imagePathInput.value,
-      conversationId: this.conversationId,
-    };
-    const results = [];
-    for (let i = 0; i < this.items.length; i++) {
-      this._setStatus(`Saving ${i + 1} of ${this.items.length}…`);
-      const result = await this._saveOneItem(this.items[i], intakeRef);
-      results.push(result);
-      // Save All may run again after the operator moves to another item.
-      // Promote a successful insert (including a duplicate match that names
-      // its existing row) to stored-item state immediately, so that later
-      // saves UPDATE that expense rather than feeding it through the insert
-      // pipeline a second time.
-      if (result.ok && result.expenseId) {
-        this.items[i].expenseId = result.expenseId;
-      }
-      if (result.ok && result.record) {
-        const item = this.items[i];
-        const vendorKey =
-          item.knownVendorKey === NEW_VENDOR_OPTION
-            ? item.newVendorKey
-            : item.knownVendorKey;
-        if (result.isUpdate) {
-          verifiedTransactionRowsRegistry.current?.updateExpense(
-            result.record,
-            vendorKey,
-          );
-        } else {
-          verifiedTransactionRowsRegistry.current?.addExpense(
-            result.record,
-            vendorKey,
-          );
-        }
-      }
-      if (
-        result.ok &&
-        result.vendorRemembered?.remembered &&
-        result.vendorRemembered.vendorKey
-      ) {
-        this.items[i].knownVendorKey = result.vendorRemembered.vendorKey;
-        this.items[i].newVendorKey = "";
-      }
-    }
-    const failed = results.filter((r) => !r.ok);
-    if (failed.length) {
-      this._setStatus(
-        `${results.length - failed.length} of ${results.length} saved; ` +
-          `${failed.length} failed: ${failed.map((f) => f.error).join("; ")}`,
-      );
-      return;
-    }
-    const updatedCount = results.filter((r) => r.isUpdate).length;
-    const insertedCount = results.length - updatedCount;
-    let statusText;
-    if (updatedCount && insertedCount) {
-      statusText = `${insertedCount} expense(s) saved, ${updatedCount} updated.`;
-    } else if (updatedCount) {
-      statusText = `${updatedCount} expense(s) updated.`;
-    } else {
-      statusText = `All ${results.length} expense(s) saved.`;
-    }
-    const newVendorKeys = results
-      .map((r) => r.vendorRemembered)
-      .filter((v) => v && v.remembered && v.vendorKey)
-      .map((v) => v.vendorKey);
-    if (newVendorKeys.length) {
-      statusText += ` Remembered new vendor(s): ${newVendorKeys.join(", ")}.`;
-      // The dropdown was built from the /api/vendor-keys snapshot at mount
-      // time, before this save added to vendor_category.yaml -- reload it
-      // now so the vendor just typed is immediately pickable, not just on
-      // the next page load.
-      await this._loadDropdownOptions();
-      this._renderCurrentItem();
-    }
-    if (this.addExpenseMode) {
-      // No reload: there is no document behind this page for a reload to
-      // re-render, and the newly saved row is already live in Verified
-      // Transactions (see addExpense above) -- the operator just needs a
-      // blank form to type the next expense into.
-      this.items = [blankManualEntryFields()];
-      this.currentIndex = 0;
-      this._renderCurrentItem();
-      this._setStatus(statusText);
-      return;
-    }
-    this._setStatus(statusText);
-    // Reload only after every item and post-save dropdown refresh completed.
-    // This replaces the stale in-memory finding IDs with the server's canonical
-    // rows and guarantees one refresh for the whole batch, never one per item.
-    this.doc.location.reload();
+    return this._saveWorkflow.saveAll();
   }
 
-  /**
-   * Save All, in statement mode: every corrected row in one call.
-   *
-   * The counts reported back are the store's own -- it is the thing that knows
-   * a "PAYMENT - THANK YOU" line is not an expense and that two of these rows
-   * are already on file from their receipts. Reporting anything the form
-   * computed itself would be a second, weaker opinion about the same rows.
-   */
   async _saveStatement() {
-    this._setStatus(
-      `Storing ${this.items.length} transaction(s) through the statement store…`,
-    );
-    let result;
-    try {
-      const json = await this.http.postJSON(
-        "/api/manual-statement-entry",
-        buildStatementEntryPayload(
-          // The store's split_expenses_and_credits needs the WHOLE page's
-          // signs to classify a borderline row correctly -- submitting only
-          // the reviewable rows would change a mixed-sign page into an
-          // all-negative one and could flip its verdict on a row that was
-          // never touched. The excluded rows ride along unedited; the store
-          // reaches the same "not an expense" verdict on them either way and
-          // reports them back as skipped_credits.
-          [...this.items, ...this.statementExcludedRows],
-          {
-            imagePath: this.imagePathInput.value,
-            conversationId: this.conversationId,
-          },
-          this.statementHeader,
-        ),
-        // Duplicate-checking, vendor resolution and the archive move for a
-        // whole page run inside one request.
-        { timeout: 180000 },
-      );
-      result = readStatementEntryResponse(json);
-    } catch (err) {
-      this._setStatus(
-        `Statement save failed: ${err && err.message ? err.message : err}`,
-      );
-      return;
-    }
-    const summary = summarizeStatementStore(result);
-    if (!result.ok) {
-      this._setStatus(
-        `Statement not stored: ${result.error || "unknown error"} (${summary})` +
-          (result.problems.length ? ` ${result.problems.join("; ")}` : ""),
-      );
-      return;
-    }
-    this._setStatus(
-      `${summary}${
-        result.problems.length ? ` Notes: ${result.problems.join("; ")}` : ""
-      }`,
-    );
-    this.doc.location.reload();
+    return this._saveWorkflow.saveStatement();
   }
 
   async _showArchiveVerification() {
