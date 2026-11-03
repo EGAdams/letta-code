@@ -22,12 +22,10 @@ import {
   progressLabel,
   renderPollPage,
 } from "../abstract/agent-bridge-poll-render.js";
-import {
-  renderBridgeWorkflow,
-  renderWorkerLegend,
-} from "../abstract/bridge-workflow-render.js";
+import { renderBridgeWorkflow } from "../abstract/bridge-workflow-render.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import { MermaidView } from "../plans/mermaid-view.js";
+import { taskSignature } from "./worker-activity.js";
 
 const esc = TextUtils.esc;
 
@@ -67,10 +65,16 @@ function loadScript(doc, src) {
   });
 }
 
-export function createAgentBridgePoll({ doc = document, win = window, http }) {
+// `workerFeed` is the Worker Activity controller: the one reader of
+// /api/worker-activity. This page only draws what it publishes.
+export function createAgentBridgePoll({
+  doc = document,
+  win = window,
+  http,
+  workerFeed = null,
+}) {
   const tab = doc.getElementById("btn-poll-settings");
   const body = doc.getElementById("poll-settings-body");
-  const legend = doc.getElementById("worker-legend");
 
   const ABP = {
     last: null,
@@ -100,7 +104,6 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
           this.last.polling !== d.polling;
         this.last = d;
         this.paintTab(d);
-        await this.pollWorkflow();
         // Never redraw over a form someone is typing into.
         if (this.isOpen() && firstOrChanged && !this.edit.editing)
           this.render();
@@ -111,38 +114,14 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
           body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
       }
     },
-    async pollWorkflow() {
-      try {
-        const payload = await http.getJSON("/api/worker-activity");
-        // Ignore heartbeat timestamps: the SVG only changes when task/status
-        // telemetry changes, not on every five-second poll tick.
-        const signature = JSON.stringify({
-          tasks_available: payload.tasks_available,
-          tasks_error: payload.tasks_error,
-          tasks: payload.tasks,
-          worker: payload.worker && {
-            name: payload.worker.name,
-            status: payload.worker.status,
-            reason: payload.worker.reason,
-          },
-        });
-        this.workflowPayload = payload;
-        if (legend) legend.innerHTML = renderWorkerLegend(payload);
-        const host = doc.getElementById("abp-workflow");
-        if (host && signature !== this.workflowSignature) {
-          host.innerHTML = renderBridgeWorkflow(payload);
-          this.workflowSignature = signature;
-        }
-      } catch (error) {
-        const payload = {
-          tasks_available: false,
-          tasks_error: `Worker telemetry unavailable: ${error.message}`,
-        };
-        if (legend) legend.innerHTML = renderWorkerLegend(payload);
-        const host = doc.getElementById("abp-workflow");
-        if (host && this.workflowSignature !== "unavailable")
-          host.innerHTML = renderBridgeWorkflow(payload);
-        this.workflowSignature = "unavailable";
+    showWorkflow(payload) {
+      // Redraw the SVG only when task telemetry changed, not on every tick.
+      const signature = taskSignature(payload);
+      this.workflowPayload = payload;
+      const host = doc.getElementById("abp-workflow");
+      if (host && signature !== this.workflowSignature) {
+        host.innerHTML = renderBridgeWorkflow(payload, { idPrefix: "abp" });
+        this.workflowSignature = signature;
       }
     },
     render(shown = this.last) {
@@ -153,9 +132,10 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
       body.innerHTML = renderPollPage(shown, c, this.edit);
       const workflow = doc.createElement("div");
       workflow.id = "abp-workflow";
-      workflow.innerHTML = this.workflowPayload
-        ? renderBridgeWorkflow(this.workflowPayload)
-        : "";
+      workflow.innerHTML = renderBridgeWorkflow(this.workflowPayload, {
+        idPrefix: "abp",
+      });
+      this.workflowSignature = taskSignature(this.workflowPayload);
       const workflowAnchor = body.querySelector("#abp-diagram");
       if (workflowAnchor) workflowAnchor.before(workflow);
       const host = doc.getElementById("abp-diagram");
@@ -269,7 +249,7 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
     open() {
       if (!body) return;
       body.dataset.open = "1";
-      void this.pollWorkflow();
+      void workerFeed?.poll();
       if (this.last) this.render();
       else body.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
       void this.poll();
@@ -293,6 +273,7 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
       form.elements[name].disabled = event.target.checked;
   });
 
+  workerFeed?.subscribe((payload) => ABP.showWorkflow(payload));
   void ABP.poll();
   win.setInterval(() => void ABP.poll(), POLL_MS);
   win.setInterval(() => ABP.tick(), TICK_MS);

@@ -5,3 +5,26 @@
 .worker-task-queued td { background: #fff8d8; }
 .worker-activity-unavailable { border-left: 4px solid #b8860b; background: #fff8d8; padding: 10px 12px; max-width: 720px; }
 .worker-activity-health { margin-top: 0; }
+
+/* Worker Activity page: the live workflow SVG sits above the ledger table. */
+#worker-activity-body .bridge-workflow { margin-top: 6px; }
+.bridge-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 0; font-size: .84rem; }
+.bridge-summary.is-muted { color: #8a6d00; }
+.bridge-chip { border: 1px solid #bbb; border-radius: 999px; padding: 2px 9px; background: #fafafa; color: #333; }
+.bridge-chip.is-queued { border-color: #b8860b; background: #fff8d8; }
+.bridge-chip.is-running { border-color: #2674d9; background: #eaf2ff; }
+.bridge-chip.is-completed { border-color: #2b9b55; background: #eaf7ee; }
+.bridge-chip.is-failed { border-color: #c62828; background: #fdecec; color: #8e1b1b; }
+.bridge-summary-note { color: #777; font-size: .78rem; }
+.bridge-workflow-note.is-unavailable { color: #8a6d00; border-left: 4px solid #b8860b; background: #fff8d8; padding: 6px 10px; }
+.worker-activity-failures { border-left: 4px solid #c62828; background: #fdf3f3; padding: 6px 12px; margin: 10px 0; max-width: 900px; }
+.worker-activity-failures h3 { margin: 4px 0; font-size: .95rem; color: #8e1b1b; }
+.worker-activity-failures ul { margin: 4px 0; padding-left: 18px; font-size: .85rem; }
+.worker-activity-failures li { margin: 5px 0; }
+.worker-failure-error { color: #8e1b1b; font-family: monospace; font-size: .8rem; word-break: break-word; }
+.worker-activity-table-wrap { overflow-x: auto; }
+.worker-task-running td { background: #eaf2ff; }
+.worker-legend .worker-swatch.is-failed { box-shadow: 0 0 0 2px #e53935; }
+.worker-legend .worker-status.is-failed { color: #ff8a80; }
+.worker-legend .worker-status.is-running { color: #9cc7ff; }
+.worker-legend .worker-status.is-queued { color: #ffe082; }

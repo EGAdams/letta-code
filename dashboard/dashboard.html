@@ -9,9 +9,9 @@
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260910" />
   <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
   <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
-  <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261031polledit" />
+  <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261103svg2" />
   <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
-  <link rel="stylesheet" href="/css/worker-activity.css?v=20261103worker" />
+  <link rel="stylesheet" href="/css/worker-activity.css?v=20261103svg" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -109,9 +109,6 @@
       <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
     </nav>
 
-    <div id="worker-legend" class="worker-legend" aria-live="polite">
-      <h2>Worker legend</h2><p class="worker-legend-empty">Open Poll Settings to read worker telemetry.</p>
-    </div>
 
     <!-- Process Flows sub-nav -->
     <nav id="nav-process-flows" class="hidden">
@@ -171,6 +168,9 @@
     <nav id="nav-ssh-connections" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
     </nav>
+    <div id="worker-legend" class="worker-legend" aria-live="polite">
+      <h2>Worker legend</h2><p class="worker-legend-empty">Checking worker telemetry&hellip;</p>
+    </div>
   </aside>
 
   <main class="content" id="main-content">
@@ -255,7 +255,7 @@
 
     <section id="worker-activity" class="view">
       <h2>Worker Activity</h2>
-      <p class="srv-note">Verified StarTrekBridge/Codex worker health and task activity when a real read-only task ledger is available.</p>
+      <p class="srv-note">Live Star Trek Bridge workflow and task ledger (read-only, from the post office snapshot), plus the bridge worker&rsquo;s own heartbeat. Refreshes every 5 s while open.</p>
       <div id="worker-activity-body"><p class="am-dim">Checking&hellip;</p></div>
     </section>
 
@@ -641,6 +641,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20261103notes2"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20261103wkrsvg"></script>
 </body>
 </html>

@@ -127,9 +127,9 @@ const providerAccountMonitor = new DomChatGptProviderAccountController({
 providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const WI = createWslInterop({ doc, http, viewNav });
-const ABP = createAgentBridgePoll({ doc, win, http });
+const WKR = createWorkerActivity({ doc, win, http });
+const ABP = createAgentBridgePoll({ doc, win, http, workerFeed: WKR });
 const PRN = createPrinterPanel({ doc, win, http });
-const WKR = createWorkerActivity({ doc, http });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
 const statusHome = createStatusHome({ doc, http });
 statusHome.bind();
