@@ -71,3 +71,17 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
     server._scan_dispatch_claims.clear()
     yield
     server._scan_dispatch_claims.clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_scan_jobs(tmp_path, monkeypatch):
+    """Scan jobs (scan_jobs/composition.py) keep a database, artifacts and the
+    bridge client list under the operator's home. Every dashboard scan now goes
+    through them, so without this a test run would write job rows and image
+    copies into the live store and read the live token list."""
+    from scan_jobs import composition
+    monkeypatch.setenv('SCAN_JOBS_DIR', str(tmp_path / 'scan_jobs_data'))
+    monkeypatch.setenv('SCAN_BRIDGE_CONFIG_DIR', str(tmp_path / 'scan_bridge_config'))
+    composition.reset()
+    yield
+    composition.reset()

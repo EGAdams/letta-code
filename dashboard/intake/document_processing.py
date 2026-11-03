@@ -33,6 +33,7 @@ from typing import Callable
 from hardware.scan_result import _scan_output_ready
 from health.document_vision import DOCUMENT_VISION_HALT_MESSAGE
 from intake.mazda_dispatch import HUMAN_ONLY_MODE_STAGE_MESSAGE
+from intake.scala_handoff import leave_for_scala, left_for_scala
 
 STATEMENT_DOC_KINDS = ('statement', 'bank_statement')
 
@@ -219,6 +220,9 @@ def process_scanned_document(
             result['image_path'] = image_path
             return result
         remote_image_path = deps.stage_scan_for_mazda(image_path)
+        if remote_image_path and left_for_scala(facade, doc_kind_override):
+            return leave_for_scala(deps, cfg, key, image_path, remote_image_path,
+                                   facade, content_sha256)
         if remote_image_path:
             if facade.get('statement_preflight'):
                 payload_path = deps.write_statement_preflight_payload(

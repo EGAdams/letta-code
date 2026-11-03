@@ -16,6 +16,8 @@ from typing import Any
 
 import sydney_service
 import cashy_service
+import yolanda_service
+import liz_service
 import toyota_service
 from receptionist_sidecar import IReceptionistSidecar, ReceptionistAlertAckRequest
 
@@ -23,7 +25,8 @@ from receptionist_sidecar import IReceptionistSidecar, ReceptionistAlertAckReque
 def sources() -> dict[str, IReceptionistSidecar]:
     # A function, not a constant, so a test's rebind of BRIDGE is seen.
     return {'toyota': toyota_service.BRIDGE, 'sydney': sydney_service.BRIDGE,
-            'cashy': cashy_service.BRIDGE}
+            'cashy': cashy_service.BRIDGE, 'yolanda': yolanda_service.BRIDGE,
+            'liz': liz_service.BRIDGE}
 
 
 def collect(bridges: dict[str, IReceptionistSidecar] | None = None) -> dict[str, Any]:

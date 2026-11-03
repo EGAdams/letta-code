@@ -13,6 +13,7 @@
 // needed by the nav bindings, and the nav bindings must exist before the
 // deep-link runs.
 
+import { createAgentBridgePoll } from "./boot/agent-bridge-poll.js";
 import { createAgentManager } from "./boot/agent-manager.js";
 import { createAgentTabStatus } from "./boot/agent-tab-status.js";
 import { bindNavigation } from "./boot/bindings/index.js";
@@ -24,6 +25,7 @@ import {
   collectStartupElements,
 } from "./boot/nav-elements.js";
 import { createPcMonitor } from "./boot/pc-monitor.js";
+import { createPrinterPanel } from "./boot/printer-panel.js";
 import { startReceptionist } from "./boot/receptionist.js";
 import { createRolFinance } from "./boot/rol-finance.js";
 import { setupScanners } from "./boot/scanners/index.js";
@@ -115,6 +117,8 @@ const providerAccountMonitor = new DomChatGptProviderAccountController({
 providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const WI = createWslInterop({ doc, http, viewNav });
+const ABP = createAgentBridgePoll({ doc, win, http });
+const PRN = createPrinterPanel({ doc, win, http });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
 const statusHome = createStatusHome({ doc, http });
 statusHome.bind();
@@ -141,6 +145,8 @@ bindNavigation({
   MS,
   PCM,
   WI,
+  ABP,
+  PRN,
   RF,
   scanners,
   statusHome,

@@ -220,6 +220,8 @@ def build_server_specs(
     toyota_service_url: str,
     sydney_service_url: str = 'http://127.0.0.1:8769',
     cashy_service_url: str = 'http://127.0.0.1:8770',
+    yolanda_service_url: str = 'http://127.0.0.1:8771',
+    liz_service_url: str = 'http://127.0.0.1:8772',
     mazda_service_url: str = 'http://127.0.0.1:8768',
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
@@ -318,6 +320,18 @@ def build_server_specs(
                  'and shared LanceDB memory as Toyota. RED means her Agent '
                  'Management box cannot answer; she has no Letta fallback. '
                  'First start takes ~30s while the sentence-transformers model loads.',
+        ),
+        ServerSpec(
+            key='yolanda-receptionist', name='Yolanda Email',
+            probe=HttpProbe(health_url=f'{yolanda_service_url}/health'),
+            log_file='/tmp/yolanda_receptionist.log',
+            note='Email specialist on the shared receptionist engine; Gmail through Claude connectors.',
+        ),
+        ServerSpec(
+            key='liz-receptionist', name='Liz City Tax',
+            probe=HttpProbe(health_url=f'{liz_service_url}/health'),
+            log_file='/tmp/liz_receptionist.log',
+            note='Grand Rapids city income tax specialist on the shared receptionist engine.',
         ),
         ServerSpec(
             key='cashy-agent',

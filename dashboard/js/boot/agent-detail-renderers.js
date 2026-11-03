@@ -16,6 +16,7 @@ import {
   EditableDarkNoteSurface,
   InputOptionsRenderer,
   LettaAgentAdapter,
+  LIZ_AGENT_ID,
   MAZDA_AGENT_ID,
   SessionState,
   SpokenOutputPolicy,
@@ -25,6 +26,7 @@ import {
   TestChatAgentAdapter,
   VoiceSession,
   wakePhraseIntentPolicy,
+  YOLANDA_AGENT_ID,
 } from "../implementation/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
 import { ReceptionistDesk } from "./receptionist-desk.js";
@@ -160,6 +162,37 @@ export function createAgentDetailRenderers({
     },
     // Cashy gets the same desk. She is not on the Pipecat voice pilot, so
     // she always records on the default path.
+    [YOLANDA_AGENT_ID]: (target) =>
+      deskFactory(
+        {
+          name: "Yolanda",
+          agentId: YOLANDA_AGENT_ID,
+          boxId: target,
+          conversationAgent: new StreamingLettaAgentAdapter({
+            storage,
+            endpoint: "/api/yolanda-turn",
+          }),
+          intentPolicy: wakePhraseIntentPolicy("yolanda"),
+          pipecatSelected: () => false,
+        },
+        { http, storage, doc, win },
+      ),
+    // Liz, the city tax desk: the same desk (typed and spoken, phone included).
+    [LIZ_AGENT_ID]: (target) =>
+      deskFactory(
+        {
+          name: "Liz",
+          agentId: LIZ_AGENT_ID,
+          boxId: target,
+          conversationAgent: new StreamingLettaAgentAdapter({
+            storage,
+            endpoint: "/api/liz-turn",
+          }),
+          intentPolicy: wakePhraseIntentPolicy("liz"),
+          pipecatSelected: () => false,
+        },
+        { http, storage, doc, win },
+      ),
     [CASHY_AGENT_ID]: (target) =>
       deskFactory(
         {

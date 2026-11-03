@@ -22,6 +22,7 @@ import statement_review
 import receptionist_alerts
 import toyota_service
 from receptionist_work import http_api as receptionist_work_api
+from scan_jobs import http_routes as scan_bridge_routes
 from agents import conversation_management
 from finance import add_expense_page
 from health import (
@@ -37,6 +38,8 @@ from model_stats import reader as model_stats_reader
 from model_stats.sources import MODEL_STAT_SOURCES
 from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win10_node
 from monitoring import wsl_interop_entry
+from monitoring import agent_bridge_poll
+from monitoring import printer_panel
 from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
@@ -59,6 +62,8 @@ class GetRoutesMixin:
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
 
+        if path.startswith(scan_bridge_routes.PREFIX):
+            return scan_bridge_routes.serve(self, 'GET')
         if path == '/api/receptionist-alerts':
             return self.json_response(receptionist_alerts.collect())
         if path == '/api/receptionist-work':
@@ -241,6 +246,12 @@ class GetRoutesMixin:
 
         if path == '/api/wsl-interop':
             return self.json_response(wsl_interop_entry.wsl_interop_payload())
+
+        if path == '/api/agent-bridge-poll':
+            return self.json_response(agent_bridge_poll.agent_bridge_poll_payload())
+
+        if path == '/api/printer':
+            return self.json_response(printer_panel.printer_payload(query.get('refresh', [''])[0] == '1'))
 
         if path == '/api/pc-metrics':
             return self.json_response(pc_metrics.pc_metrics(query.get('pc', [''])[0]))

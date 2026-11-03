@@ -25,10 +25,13 @@ import receptionist_alerts
 import mazda_service
 import sydney_service
 import cashy_service
+import yolanda_service
+import liz_service
 import toyota_service
 from receptionist_sidecar import (IReceptionistTurnStream, ReceptionistAlertAckRequest, ReceptionistCompactRequest,
                                   SidecarTurnRequest)
 from receptionist_work import http_api as receptionist_work_api
+from scan_jobs import http_routes as scan_bridge_routes
 from agent_thoughts import message_text as _msg_text
 from agents import conversation_management
 from chatgpt_provider_status import ChatGptProviderSwapRequest
@@ -41,6 +44,8 @@ from letta_code.runner import ConversationBusyError
 from letta_code import streaming as conversation_streaming
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
+from monitoring import agent_bridge_poll_edit
+from monitoring import printer_panel
 from monitoring import ssh_checks
 from pydantic import ValidationError
 from ssh_connection_mute import SshConnectionMuteRequest
@@ -60,6 +65,8 @@ from .registry import current_ports
 RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistTurnStream] = {
     '/api/receptionist-turn': lambda request: toyota_service.stream_toyota_turn(request),
     '/api/sydney-turn': lambda request: sydney_service.stream_sydney_turn(request),
+    '/api/yolanda-turn': lambda request: yolanda_service.stream_yolanda_turn(request),
+    '/api/liz-turn': lambda request: liz_service.stream_liz_turn(request),
     '/api/cashy-turn': lambda request: cashy_service.stream_cashy_turn(request),
 }
 
@@ -68,6 +75,8 @@ RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistTurnStream] = {
 RECEPTIONIST_COMPACTS = {
     'toyota': lambda: toyota_service.compact(),
     'sydney': lambda: sydney_service.compact(),
+    'yolanda': lambda: yolanda_service.compact(),
+    'liz': lambda: liz_service.compact(),
     'cashy': lambda: cashy_service.compact(),
 }
 
@@ -78,6 +87,9 @@ class PostRoutesMixin:
         path = parsed.path
         length = int(self.headers.get('Content-Length', 0))
         raw = self.rfile.read(length)
+
+        if path.startswith(scan_bridge_routes.PREFIX):
+            return scan_bridge_routes.serve(self, 'POST', raw)
 
         # /api/voice carries a binary audio blob — handle before decoding as text.
         if path == '/api/voice':
@@ -185,6 +197,28 @@ class PostRoutesMixin:
             status = 'up' if h.get('ok') else 'down'
             return self.json_response(ssh_connection_mute.apply_mute_overlay(
                 {'key': cfg['key'], 'name': cfg['name'], 'status': status}, req.key))
+
+        if path == '/api/agent-bridge-poll/settings':
+            # The worker's own ADW validates, backs up, writes and restarts.
+            try:
+                data = json.loads(body) if body.strip() else {}
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            if not isinstance(data, dict):
+                return self.error_response('Expected a JSON object', 400)
+            return self.json_response(agent_bridge_poll_edit.save_poll_settings(data))
+
+        if path in ('/api/printer/test-print', '/api/printer/cancel'):
+            # Shape only here; adws/adw_printer.py owns every printing rule.
+            try:
+                data = json.loads(body) if body.strip() else {}
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            if not isinstance(data, dict):
+                return self.error_response('Expected a JSON object', 400)
+            if path == '/api/printer/test-print':
+                return self.json_response(printer_panel.start_test_print(data))
+            return self.json_response(printer_panel.cancel_job(data))
 
         if path == '/api/server-action':
             try:

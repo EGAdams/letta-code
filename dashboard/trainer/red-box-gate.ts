@@ -1,3 +1,9 @@
+import {
+  eventMatchesRun,
+  expenseAuditApplicability,
+  renderNotApplicableGate,
+} from "./expense-audit-applicability.ts";
+
 type JsonRecord = Record<string, unknown>;
 
 export type PostJson = (path: string, body: unknown) => Promise<unknown>;
@@ -12,6 +18,9 @@ export interface RedBoxAudit {
   ok: boolean;
   checked: number;
   failures: RedBoxFailure[];
+  /** false only when Mazda's own callback for this intake says nothing is auditable. */
+  applicable?: boolean;
+  reason?: string;
 }
 
 export interface RedBoxRunContext {
@@ -122,22 +131,6 @@ function collectIdsFromValue(
     if (EXPENSE_ID_KEYS.has(key)) addExpenseIds(child, ids);
     collectIdsFromValue(child, ids, depth + 1);
   }
-}
-
-function eventMatchesRun(
-  event: JsonRecord,
-  dispatchedAt: number,
-  conversationId: string,
-): boolean {
-  if (event.conversation_id !== conversationId) return false;
-  const eventDispatch =
-    typeof event.dispatched_at === "number"
-      ? event.dispatched_at
-      : Number(event.dispatched_at);
-  return (
-    Number.isFinite(eventDispatch) &&
-    Math.abs(eventDispatch - dispatchedAt) < 0.01
-  );
 }
 
 function hasIntegrityError(
@@ -288,8 +281,24 @@ export async function auditRedBoxesForRun(
       };
     }
 
-    const reason =
-      docKind === "other"
+    const applicability = expenseAuditApplicability(
+      runContext.events,
+      runContext.dispatchedAt,
+      runContext.conversationId,
+    );
+    if (applicability && !applicability.applicable) {
+      return {
+        ok: true,
+        checked: 0,
+        failures: [],
+        applicable: false,
+        reason: applicability.reason,
+      };
+    }
+
+    const reason = applicability
+      ? applicability.reason
+      : docKind === "other"
         ? detail ||
           "Blank or non-financial scan produced no auditable expense IDs."
         : "No expense IDs were found for this intake run.";
@@ -422,6 +431,9 @@ export function applyRedBoxAuditToReport(
     /\n## Deterministic red-box gate[\s\S]*$/i,
     "",
   );
+  if (audit.applicable === false) {
+    return renderNotApplicableGate(report, intakeVerdict, audit.reason ?? "");
+  }
   if (audit.ok) {
     return (
       `${report.trimEnd()}\n\n## Deterministic red-box gate — PASS\n\n` +

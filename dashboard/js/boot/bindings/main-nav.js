@@ -14,6 +14,8 @@ export function bindMainNav({
   MS,
   PCM,
   WI,
+  ABP,
+  PRN,
   statusHome,
 }) {
   const agentBlocksFrame = doc.getElementById("agent-block-frame");
@@ -178,6 +180,16 @@ export function bindMainNav({
         if (target === "wsl-interop") {
           viewNav.activateView("wsl-interop");
           WI.open();
+        }
+
+        if (target === "poll-settings") {
+          viewNav.activateView("poll-settings");
+          ABP?.open();
+        }
+
+        if (target === "printer") {
+          viewNav.activateView("printer");
+          PRN?.open();
         }
       });
     });

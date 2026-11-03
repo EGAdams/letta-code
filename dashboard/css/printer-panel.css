@@ -1,0 +1,29 @@
+/* Printer tab (System Status) — printers, recent jobs, test page, cancel. */
+
+.prn-table {
+  border-collapse: collapse;
+  margin: 6px 0 12px;
+  max-width: 100%;
+}
+.prn-table th,
+.prn-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+  vertical-align: top;
+}
+.prn-default {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 0.8em;
+}
+.prn-failed td,
+.prn-ambiguous td {
+  color: #b71c1c;
+}
+.prn-ok {
+  color: #2e7d32;
+}

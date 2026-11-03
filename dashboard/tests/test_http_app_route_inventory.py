@@ -41,7 +41,10 @@ GET_ROUTES = [
     '/api/ssh-connection-logs', '/api/ssh-connection-test',
     '/api/ssh-connections', '/api/statement-reviews', '/api/thoughts', '/api/toolcalls',
     '/api/vendor-keys', '/api/voice-media-backend', '/api/wsl-interop',
+    '/api/agent-bridge-poll',
+    '/api/printer',
     '/report-source-document',
+    '/api/scan-bridge/v1/scans', '/api/scan-bridge/v1/scans/scan_01ARZ3NDEKTSV4RRFFQ69G5FAV',
 ]
 
 POST_ROUTES = [
@@ -67,11 +70,16 @@ POST_ROUTES = [
     '/api/receptionist-turn',
     '/api/sydney-turn',
     '/api/cashy-turn',
+    '/api/yolanda-turn',
+    '/api/liz-turn',
     '/api/reprocess-report', '/api/route-detect',
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',
     '/api/scanner-scan', '/api/server-action', '/api/set-receipt-vendor',
     '/api/ssh-connection-mute',
+    '/api/agent-bridge-poll/settings',
+    '/api/printer/test-print', '/api/printer/cancel',
+    '/api/scan-bridge/v1/scans',
     '/api/statement-review-resolve', '/api/supporting-documents', '/api/test',
     '/api/tts', '/api/undo-recategorize-expense', '/api/voice',
 ]
