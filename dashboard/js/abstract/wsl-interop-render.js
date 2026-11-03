@@ -39,6 +39,19 @@ function machineCard(m) {
   );
 }
 
+function redMachineSteps(d) {
+  const red = ((d && d.machines) || []).filter((m) => m.level === "crit");
+  if (!red.length) return '<p class="am-dim">Nothing is red right now.</p>';
+  const items = red.map((m) => {
+    const where =
+      m.host === "this box"
+        ? "open a terminal here"
+        : `<code>ssh ${esc(m.host)}</code>`;
+    return `<li>${esc(m.label)}: ${where}</li>`;
+  });
+  return `<ul>${items.join("")}</ul>`;
+}
+
 function instructions(d) {
   const cmd = d.register_command;
   return (
@@ -49,9 +62,9 @@ function instructions(d) {
     "launches a Windows <code>.exe</code> fails with <code>Exec format error</code>: " +
     "the browser-open ADW (rundll32.exe), the PC Monitor's PowerShell RAM reading, " +
     "the scanner and printer tools.</p>" +
-    '<p class="mtr-fix-label">1. Open your own terminal on that machine. ' +
-    "For another box, SSH in first (for example <code>ssh adamsl@100.72.34.38</code> " +
-    "for Moms 46). It has to be a real terminal: <code>sudo</code> needs to ask for " +
+    '<p class="mtr-fix-label">1. Run the steps below ON the red machine, not on the one you are sitting at:</p>' +
+    redMachineSteps(d) +
+    '<p class="am-dim">It has to be a real terminal: <code>sudo</code> needs to ask for ' +
     "your password, so it will not work from Claude Code’s <code>!</code> prompt " +
     "or from this dashboard.</p>" +
     '<p class="mtr-fix-label">2. Re-register the entry:</p>' +

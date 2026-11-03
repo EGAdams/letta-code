@@ -67,6 +67,7 @@ POST_ROUTES = [
     '/api/receptionist-turn',
     '/api/sydney-turn',
     '/api/cashy-turn',
+    '/api/yolanda-turn',
     '/api/reprocess-report', '/api/route-detect',
     '/api/save-expense-notes', '/api/scanned-statements-present',
     '/api/scanner-archive-path', '/api/scanner-clear-verification',

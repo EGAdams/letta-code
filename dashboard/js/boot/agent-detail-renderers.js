@@ -12,6 +12,7 @@ import {
   BrowserAgentWindows,
   BrowserSpeechRecognitionListener,
   CASHY_AGENT_ID,
+  YOLANDA_AGENT_ID,
   ChatDetailRenderer,
   EditableDarkNoteSurface,
   InputOptionsRenderer,
@@ -160,6 +161,18 @@ export function createAgentDetailRenderers({
     },
     // Cashy gets the same desk. She is not on the Pipecat voice pilot, so
     // she always records on the default path.
+    [YOLANDA_AGENT_ID]: (target) =>
+      deskFactory(
+        {
+          name: "Yolanda",
+          agentId: YOLANDA_AGENT_ID,
+          boxId: target,
+          conversationAgent: new StreamingLettaAgentAdapter({storage, endpoint: "/api/yolanda-turn"}),
+          intentPolicy: wakePhraseIntentPolicy("yolanda"),
+          pipecatSelected: () => false,
+        },
+        {http, storage, doc, win},
+      ),
     [CASHY_AGENT_ID]: (target) =>
       deskFactory(
         {

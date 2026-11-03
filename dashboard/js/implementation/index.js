@@ -56,6 +56,7 @@ export {
   AgentWindowHandoff,
   BrowserAgentWindows,
   CASHY_AGENT_ID,
+  YOLANDA_AGENT_ID,
   FRONT_DESK_WINDOW,
   MAZDA_AGENT_ID,
   SYDNEY_AGENT_ID,

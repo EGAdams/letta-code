@@ -25,6 +25,7 @@ import receptionist_alerts
 import mazda_service
 import sydney_service
 import cashy_service
+import yolanda_service
 import toyota_service
 from receptionist_sidecar import (IReceptionistTurnStream, ReceptionistAlertAckRequest, ReceptionistCompactRequest,
                                   SidecarTurnRequest)
@@ -60,6 +61,7 @@ from .registry import current_ports
 RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistTurnStream] = {
     '/api/receptionist-turn': lambda request: toyota_service.stream_toyota_turn(request),
     '/api/sydney-turn': lambda request: sydney_service.stream_sydney_turn(request),
+    '/api/yolanda-turn': lambda request: yolanda_service.stream_yolanda_turn(request),
     '/api/cashy-turn': lambda request: cashy_service.stream_cashy_turn(request),
 }
 
@@ -68,6 +70,7 @@ RECEPTIONIST_TURN_ROUTES: dict[str, IReceptionistTurnStream] = {
 RECEPTIONIST_COMPACTS = {
     'toyota': lambda: toyota_service.compact(),
     'sydney': lambda: sydney_service.compact(),
+    'yolanda': lambda: yolanda_service.compact(),
     'cashy': lambda: cashy_service.compact(),
 }
 

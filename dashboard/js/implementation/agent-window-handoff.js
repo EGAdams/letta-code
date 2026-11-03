@@ -33,6 +33,8 @@ export const SYDNEY_AGENT_ID = "agent-sydney";
  * The banking navigation agent (agent_blocks/adws/cashy); her turns go to
  * /api/cashy-turn.
  */
+export const YOLANDA_AGENT_ID = "agent-yolanda";
+
 export const CASHY_AGENT_ID = "agent-cashy";
 
 /** The Home screen's window name, so Mazda can find her way back to it. */
@@ -47,6 +49,10 @@ export const AGENT_WINDOWS = Object.freeze({
   sydney: {
     url: `/?agent=${SYDNEY_AGENT_ID}&view=input-options`,
     windowName: "rol-agent-sydney",
+  },
+  yolanda: {
+    url: `/?agent=${YOLANDA_AGENT_ID}&view=input-options`,
+    windowName: "rol-agent-yolanda",
   },
   cashy: {
     url: `/?agent=${CASHY_AGENT_ID}&view=input-options`,

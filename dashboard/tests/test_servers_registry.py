@@ -102,7 +102,7 @@ def _spec(**overrides) -> dict:
 KNOWN_POST_BASELINE_ADDITIONS = {
     'agent-blocks', 'chatgpt-provider', 'scanner-intake-watchdog',
     'toyota-receptionist', 'mazda-receptionist', 'sydney-receptionist',
-    'cashy-agent',
+    'cashy-agent', 'yolanda-receptionist',
 }
 
 
