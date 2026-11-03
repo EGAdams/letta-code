@@ -15,7 +15,7 @@
 // notes_plans_handoffs/mazda_dev_status.html (Mazda's developer manual).
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
 import {
@@ -27,6 +27,7 @@ import {
   auditRedBoxesForRun,
   collectExpenseIds,
 } from "./red-box-gate.ts";
+import { intakeStatusDetail } from "./intake-status-detail.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -238,8 +239,7 @@ async function notifyDashboardStatus(args) {
   }
   const match = report.match(/Verdict[^A-Za-z]*(PASS|CORRECTED|FAIL|STALLED)/i);
   const status = (match?.[1] || 'STALLED').toLowerCase();
-  const diagnosis = report.match(/## (?:Diagnosis|Wrapper Defect)\s+([\s\S]*?)(?=\n## |$)/i);
-  const detail = (diagnosis?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  const detail = intakeStatusDetail(report, status, args.gateAudit, basename(args.reportPath));
   try {
     const response = await fetch(`${DASHBOARD_BASE_URL}/api/intake-status`, {
       method: 'POST',
@@ -331,6 +331,7 @@ async function enforceDeterministicRedBoxGate(args) {
   }
   const report = readFileSync(args.reportPath, 'utf8');
   writeFileSync(args.reportPath, applyRedBoxAuditToReport(report, audit));
+  args.gateAudit = audit;
   return audit.ok;
 }
 

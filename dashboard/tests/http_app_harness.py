@@ -106,7 +106,14 @@ def default_returns():
         '_report_source_document_view': lambda *a, **k: an_existing_file,
         # ssh_connection_mute: nothing muted unless a test says so
         'is_muted': False,
+        # the scan bridge answers a stubbed request as an unauthenticated one
+        'scan_bridge_dispatch': lambda *a, **k: _scan_bridge_unauthorized(),
     }
+
+
+def _scan_bridge_unauthorized():
+    from scan_jobs.http_routes import BridgeResponse
+    return BridgeResponse(code=401, content_type='application/json', body=b'{"error": {"code": "unauthorized"}}')
 
 
 #: What the route ladders call that does not live in server.py.
@@ -122,6 +129,7 @@ def default_returns():
 #: symptom of forgetting is not a red test — it is a green one that took 30
 #: seconds and touched the network.
 DIRECT_SERVICES = {
+    'scan_jobs.http_routes': ('scan_bridge_dispatch',),
     'receptionist_work.http_api': ('state', 'execute', 'claim', 'training_search',
                                   'training_categories', 'training_edit', 'document_path', 'trace'),
     'finance.category_creation': ('create_category_vendor',),
@@ -144,12 +152,16 @@ DIRECT_SERVICES = {
     'toyota_service': ('stream_toyota_turn', 'preferred_backend', 'health', 'compact'),
     'sydney_service': ('stream_sydney_turn', 'health', 'compact'),
     'yolanda_service': ('stream_yolanda_turn', 'health', 'compact'),
+    'liz_service': ('stream_liz_turn', 'health', 'compact'),
     'cashy_service': ('stream_cashy_turn', 'health', 'compact'),
     'mazda_receptionist_service': ('stream_turn', 'stream_mazda_receptionist_turn',
                                    'preferred_backend', 'health'),
     'monitoring.log_files': ('log_activity_health',),
     'monitoring.pc_metrics': ('pc_metrics',),
     'monitoring.wsl_interop_entry': ('wsl_interop_payload',),
+    'monitoring.agent_bridge_poll': ('agent_bridge_poll_payload',),
+    'monitoring.agent_bridge_poll_edit': ('save_poll_settings',),
+    'monitoring.printer_panel': ('printer_payload', 'start_test_print', 'cancel_job'),
     'monitoring.server_lifecycle': ('clear_server_starting',
                                     'track_down_duration'),
     'monitoring.ssh_checks': ('cached_ssh_health', 'connection_log_rows',

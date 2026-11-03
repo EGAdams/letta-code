@@ -221,6 +221,7 @@ def build_server_specs(
     sydney_service_url: str = 'http://127.0.0.1:8769',
     cashy_service_url: str = 'http://127.0.0.1:8770',
     yolanda_service_url: str = 'http://127.0.0.1:8771',
+    liz_service_url: str = 'http://127.0.0.1:8772',
     mazda_service_url: str = 'http://127.0.0.1:8768',
 ) -> tuple[ServerSpec, ...]:
     """The fifteen tiles, wired to the composition root's values.
@@ -325,6 +326,12 @@ def build_server_specs(
             probe=HttpProbe(health_url=f'{yolanda_service_url}/health'),
             log_file='/tmp/yolanda_receptionist.log',
             note='Email specialist on the shared receptionist engine; Gmail through Claude connectors.',
+        ),
+        ServerSpec(
+            key='liz-receptionist', name='Liz City Tax',
+            probe=HttpProbe(health_url=f'{liz_service_url}/health'),
+            log_file='/tmp/liz_receptionist.log',
+            note='Grand Rapids city income tax specialist on the shared receptionist engine.',
         ),
         ServerSpec(
             key='cashy-agent',

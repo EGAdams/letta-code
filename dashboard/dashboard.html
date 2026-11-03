@@ -9,6 +9,9 @@
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260910" />
   <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
   <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
+  <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261103svg2" />
+  <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
+  <link rel="stylesheet" href="/css/worker-activity.css?v=20261103svg" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -26,7 +29,7 @@
 
     <!-- Main nav -->
     <nav id="nav-main">
-      <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab active" data-nav="main" data-target="notes">NOTES</button>
       <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
       <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
@@ -61,6 +64,9 @@
       <button type="button" class="tab" data-nav="status" data-target="model-stats" id="btn-model-stats">Model Stats</button>
       <button type="button" class="tab" data-nav="status" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
       <button type="button" class="tab" data-nav="status" data-target="wsl-interop" id="btn-wsl-interop">WSLInterop Entry</button>
+      <button type="button" class="tab poll-disabled" data-nav="status" data-target="poll-settings" id="btn-poll-settings">Poll Settings</button>
+      <button type="button" class="tab poll-disabled" data-nav="status" data-target="printer" id="btn-printer">Printer</button>
+      <button type="button" class="tab poll-disabled" data-nav="status" data-target="worker-activity" id="btn-worker-activity">Worker Activity</button>
     </nav>
 
     <!-- Agent management sub-nav -->
@@ -102,6 +108,7 @@
     <nav id="nav-voice-communication" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
     </nav>
+
 
     <!-- Process Flows sub-nav -->
     <nav id="nav-process-flows" class="hidden">
@@ -161,14 +168,30 @@
     <nav id="nav-ssh-connections" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
     </nav>
+    <div id="worker-legend" class="worker-legend" aria-live="polite">
+      <h2>Worker legend</h2><p class="worker-legend-empty">Checking worker telemetry&hellip;</p>
+    </div>
   </aside>
 
   <main class="content" id="main-content">
     <!-- Main views -->
-    <section id="home" class="view active">
+    <section id="home" class="view">
       <h2>Toyota</h2>
       <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
       <div id="receptionist-box"></div>
+    </section>
+
+    <section id="notes" class="view active">
+      <h2>NOTES</h2>
+      <p>Choose an existing note to open and edit, or start a new note.</p>
+      <div id="notes-landing" class="notes-landing"></div>
+      <div id="notes-editor" class="notes-editor hidden">
+        <h3 id="notes-editor-title"></h3>
+        <textarea id="notes-editor-text" rows="16" aria-label="Note contents"></textarea>
+        <button type="button" class="am-btn" id="notes-editor-save">Save Note</button>
+        <button type="button" class="am-btn" id="notes-editor-back">Back to Notes</button>
+        <span id="notes-editor-status" role="status" aria-live="polite"></span>
+      </div>
     </section>
 
     <section id="status-home" class="view">
@@ -213,6 +236,27 @@
         is gone, and every Windows <code>.exe</code> on that machine will fail with
         <code>Exec format error</code> until somebody follows the steps below.</p>
       <div id="wsl-interop-body"><p class="am-dim">Checking&hellip;</p></div>
+    </section>
+
+    <section id="poll-settings" class="view">
+      <h2>Poll Settings</h2>
+      <p class="srv-note">How often this computer checks bridge.americansjewelry.com for tasks
+        ChatGPT queued (the <code>agent-bridge-worker</code> service). The tab is green while it
+        is polling and grey when it is stopped or outside its active hours.</p>
+      <div id="poll-settings-body"><p class="am-dim">Checking&hellip;</p></div>
+    </section>
+
+    <section id="printer" class="view">
+      <h2>Printer</h2>
+      <p class="srv-note">The printers ChatGPT can use through StarTrekBridge (the Printer agent in
+        agent_blocks). Every print needs your request; checking status never prints.</p>
+      <div id="printer-body"><p class="am-dim">Checking&hellip;</p></div>
+    </section>
+
+    <section id="worker-activity" class="view">
+      <h2>Worker Activity</h2>
+      <p class="srv-note">Live Star Trek Bridge workflow and task ledger (read-only, from the post office snapshot), plus the bridge worker&rsquo;s own heartbeat. Refreshes every 5 s while open.</p>
+      <div id="worker-activity-body"><p class="am-dim">Checking&hellip;</p></div>
     </section>
 
     <section id="agent-management" class="view">
@@ -597,6 +641,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20261024adwprompt"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20261103wkrsvg"></script>
 </body>
 </html>

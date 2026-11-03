@@ -56,11 +56,12 @@ export {
   AgentWindowHandoff,
   BrowserAgentWindows,
   CASHY_AGENT_ID,
-  YOLANDA_AGENT_ID,
   FRONT_DESK_WINDOW,
+  LIZ_AGENT_ID,
   MAZDA_AGENT_ID,
   SYDNEY_AGENT_ID,
   wakePhraseIntentPolicy,
+  YOLANDA_AGENT_ID,
 } from "./agent-window-handoff.js";
 export { AgentsRouterRenderer } from "./agents-router-renderer.js";
 export { BrowserSpeechRecognitionListener } from "./browser-speech-recognition-listener.js";

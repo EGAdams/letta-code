@@ -35,6 +35,9 @@ export const SYDNEY_AGENT_ID = "agent-sydney";
  */
 export const YOLANDA_AGENT_ID = "agent-yolanda";
 
+/** Liz's id in /api/agents -- keep in step with liz_service.LIZ_AGENT_ID. City tax desk. */
+export const LIZ_AGENT_ID = "agent-liz";
+
 export const CASHY_AGENT_ID = "agent-cashy";
 
 /** The Home screen's window name, so Mazda can find her way back to it. */
@@ -53,6 +56,10 @@ export const AGENT_WINDOWS = Object.freeze({
   yolanda: {
     url: `/?agent=${YOLANDA_AGENT_ID}&view=input-options`,
     windowName: "rol-agent-yolanda",
+  },
+  liz: {
+    url: `/?agent=${LIZ_AGENT_ID}&view=input-options`,
+    windowName: "rol-agent-liz",
   },
   cashy: {
     url: `/?agent=${CASHY_AGENT_ID}&view=input-options`,

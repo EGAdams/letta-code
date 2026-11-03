@@ -80,7 +80,14 @@ class _ServerScannerPort:
         return _server().scanner_diagnostics(key)
 
     def run(self, key: str) -> dict:
-        return _server().run_scanner(key)
+        """The dashboard button, recorded as a durable scan job (same result plus
+        a scan_id). If the job layer cannot even be built, scan the old way."""
+        try:
+            from scan_jobs import composition
+            jobs = composition.service()
+        except Exception:  # noqa: BLE001
+            return _server().run_scanner(key)
+        return jobs.run_recorded(key)
 
     def clear_verification_lock(self, key: str) -> dict:
         return _server().clear_scanner_verification_lock(key)

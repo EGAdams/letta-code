@@ -70,7 +70,7 @@ class TestResolvedPerCall:
         the bundle across a few lines of a handler."""
         port = current_ports().scanner
         monkeypatch.setattr(server, 'run_scanner', lambda key: {'late': True})
-        assert port.run('window') == {'late': True}
+        assert port.run('window')['late'] is True    # plus the scan job's scan_id
 
     def test_each_call_builds_a_fresh_bundle(self):
         assert current_ports() is not current_ports()
