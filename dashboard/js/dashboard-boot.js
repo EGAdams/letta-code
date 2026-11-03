@@ -24,6 +24,7 @@ import {
   collectNavElements,
   collectStartupElements,
 } from "./boot/nav-elements.js";
+import { createNotes } from "./boot/notes.js";
 import { createPcMonitor } from "./boot/pc-monitor.js";
 import { createPrinterPanel } from "./boot/printer-panel.js";
 import { startReceptionist } from "./boot/receptionist.js";
@@ -34,6 +35,7 @@ import { createSshManager } from "./boot/ssh-manager.js";
 import { createStartupChecks } from "./boot/startup-checks.js";
 import { createStatusHome } from "./boot/status-home.js";
 import { createViewNavigator } from "./boot/view-navigator.js";
+import { createWorkerActivity } from "./boot/worker-activity.js";
 import { createWslInterop } from "./boot/wsl-interop.js";
 import {
   ActivePoller,
@@ -82,6 +84,14 @@ const { startupGate, agentGate } = createGates({
 });
 const viewNav = createViewNavigator({ doc, nav });
 viewNav.setAgentDetailContent("Agent");
+createNotes({ doc, http });
+doc
+  .getElementById("dashboard-notes-overview")
+  ?.addEventListener("click", () => {
+    const homeTab = nav.main.querySelector('[data-target="home"]');
+    viewNav.setActive(nav.main, '[data-nav="main"][data-target]', homeTab);
+    viewNav.activateView("home");
+  });
 
 /* ─────────────────────────  Sections  ───────────────────────── */
 
@@ -119,6 +129,7 @@ const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const WI = createWslInterop({ doc, http, viewNav });
 const ABP = createAgentBridgePoll({ doc, win, http });
 const PRN = createPrinterPanel({ doc, win, http });
+const WKR = createWorkerActivity({ doc, http });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
 const statusHome = createStatusHome({ doc, http });
 statusHome.bind();
@@ -147,6 +158,7 @@ bindNavigation({
   WI,
   ABP,
   PRN,
+  WKR,
   RF,
   scanners,
   statusHome,

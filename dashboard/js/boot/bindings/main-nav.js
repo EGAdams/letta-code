@@ -16,6 +16,7 @@ export function bindMainNav({
   WI,
   ABP,
   PRN,
+  WKR,
   statusHome,
 }) {
   const agentBlocksFrame = doc.getElementById("agent-block-frame");
@@ -190,6 +191,11 @@ export function bindMainNav({
         if (target === "printer") {
           viewNav.activateView("printer");
           PRN?.open();
+        }
+
+        if (target === "worker-activity") {
+          viewNav.activateView("worker-activity");
+          WKR?.open();
         }
       });
     });

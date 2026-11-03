@@ -561,6 +561,8 @@ body.startup-loading .sidebar {
 .tab {
   border: 0;
   width: 100%;
+  height: 36px;
+  min-height: 36px;
   background: var(--tab);
   color: #fff;
   font-size: 0.9rem;
@@ -569,6 +571,30 @@ body.startup-loading .sidebar {
   border-radius: 4px;
   cursor: pointer;
   text-align: left;
+  display: flex;
+  align-items: center;
+}
+
+.notes-landing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.notes-editor textarea,
+#notes-editor-text {
+  display: block;
+  width: min(100%, 850px);
+  margin: 8px 0 12px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+.notes-editor [role="status"] {
+  margin-left: 10px;
 }
 
 /* Excel-style corner marker: this Agent Blocks tab opens another flat nav

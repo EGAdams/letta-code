@@ -21,6 +21,7 @@ import ssh_connection_mute
 import statement_review
 import receptionist_alerts
 import toyota_service
+from voice import note_repository
 from receptionist_work import http_api as receptionist_work_api
 from scan_jobs import http_routes as scan_bridge_routes
 from agents import conversation_management
@@ -40,6 +41,7 @@ from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win1
 from monitoring import wsl_interop_entry
 from monitoring import agent_bridge_poll
 from monitoring import printer_panel
+from monitoring import worker_activity
 from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
@@ -93,6 +95,17 @@ class GetRoutesMixin:
             return self.json_response(srv.get_code_status())
         if path == '/api/agents':
             return self.json_response(srv.build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
+
+        if path == '/api/notes':
+            repository = note_repository.build_note_repository()
+            filename = query.get('filename', [''])[0]
+            try:
+                if filename:
+                    return self.json_response({'ok': True, 'filename': filename,
+                                               'note': repository.read(filename)})
+                return self.json_response({'ok': True, 'notes': repository.list()})
+            except (OSError, ValueError):
+                return self.error_response('Note not found', 404)
 
         if path == '/api/agent-model':
             lid = srv.letta_id_for(agent_id)
@@ -252,6 +265,9 @@ class GetRoutesMixin:
 
         if path == '/api/printer':
             return self.json_response(printer_panel.printer_payload(query.get('refresh', [''])[0] == '1'))
+
+        if path == '/api/worker-activity':
+            return self.json_response(worker_activity.payload())
 
         if path == '/api/pc-metrics':
             return self.json_response(pc_metrics.pc_metrics(query.get('pc', [''])[0]))

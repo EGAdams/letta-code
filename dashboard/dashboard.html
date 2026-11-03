@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
   <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261031polledit" />
   <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
+  <link rel="stylesheet" href="/css/worker-activity.css?v=20261103worker" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -28,7 +29,7 @@
 
     <!-- Main nav -->
     <nav id="nav-main">
-      <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab active" data-nav="main" data-target="notes">NOTES</button>
       <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
       <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
@@ -65,6 +66,7 @@
       <button type="button" class="tab" data-nav="status" data-target="wsl-interop" id="btn-wsl-interop">WSLInterop Entry</button>
       <button type="button" class="tab poll-disabled" data-nav="status" data-target="poll-settings" id="btn-poll-settings">Poll Settings</button>
       <button type="button" class="tab poll-disabled" data-nav="status" data-target="printer" id="btn-printer">Printer</button>
+      <button type="button" class="tab poll-disabled" data-nav="status" data-target="worker-activity" id="btn-worker-activity">Worker Activity</button>
     </nav>
 
     <!-- Agent management sub-nav -->
@@ -106,6 +108,10 @@
     <nav id="nav-voice-communication" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
     </nav>
+
+    <div id="worker-legend" class="worker-legend" aria-live="polite">
+      <h2>Worker legend</h2><p class="worker-legend-empty">Open Poll Settings to read worker telemetry.</p>
+    </div>
 
     <!-- Process Flows sub-nav -->
     <nav id="nav-process-flows" class="hidden">
@@ -169,10 +175,23 @@
 
   <main class="content" id="main-content">
     <!-- Main views -->
-    <section id="home" class="view active">
+    <section id="home" class="view">
       <h2>Toyota</h2>
       <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
       <div id="receptionist-box"></div>
+    </section>
+
+    <section id="notes" class="view active">
+      <h2>NOTES</h2>
+      <p>Choose an existing note to open and edit, or start a new note.</p>
+      <div id="notes-landing" class="notes-landing"></div>
+      <div id="notes-editor" class="notes-editor hidden">
+        <h3 id="notes-editor-title"></h3>
+        <textarea id="notes-editor-text" rows="16" aria-label="Note contents"></textarea>
+        <button type="button" class="am-btn" id="notes-editor-save">Save Note</button>
+        <button type="button" class="am-btn" id="notes-editor-back">Back to Notes</button>
+        <span id="notes-editor-status" role="status" aria-live="polite"></span>
+      </div>
     </section>
 
     <section id="status-home" class="view">
@@ -232,6 +251,12 @@
       <p class="srv-note">The printers ChatGPT can use through StarTrekBridge (the Printer agent in
         agent_blocks). Every print needs your request; checking status never prints.</p>
       <div id="printer-body"><p class="am-dim">Checking&hellip;</p></div>
+    </section>
+
+    <section id="worker-activity" class="view">
+      <h2>Worker Activity</h2>
+      <p class="srv-note">Verified StarTrekBridge/Codex worker health and task activity when a real read-only task ledger is available.</p>
+      <div id="worker-activity-body"><p class="am-dim">Checking&hellip;</p></div>
     </section>
 
     <section id="agent-management" class="view">
@@ -616,6 +641,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20261031polledit"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20261103notes2"></script>
 </body>
 </html>

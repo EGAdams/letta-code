@@ -129,7 +129,7 @@ export function renderPollPage(d, c, edit = {}) {
 ${edit.editing ? renderEditForm(d, edit) : renderSettingsTable(d, edit)}
 <h3>Where this fits</h3>
 ${renderDoc(d)}
-<div id="abp-diagram"></div>`;
+<div id="abp-diagram" aria-hidden="true"></div>`;
 }
 
 const settingValue = (d, key, fallback) => {

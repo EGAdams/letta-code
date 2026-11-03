@@ -892,7 +892,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     // ContinuousListener is injected (Toyota's receptionist box; see
     // dashboard-boot.js). Off by default: the user starts/stops it
     // explicitly rather than it running the moment the page loads.
-    // It sits at the very top of the stack (above Send) and is the same
+    // It sits directly below the receptionist's Play control and is the same
     // full width as Start, because note-taking starts here.
     let listenBtn = null;
     let editTextEl = null;
@@ -934,13 +934,13 @@ export class InputOptionsRenderer extends DetailRenderer {
     col.append(
       ...[
         textEl,
+        pauseBtn,
         listenBtn,
         editTextEl,
         sendBtn,
         saveNoteBtn,
         editBtn,
         voiceRow,
-        pauseBtn,
         autoSendBtn,
         copyBtn,
         statusEl,

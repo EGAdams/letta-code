@@ -110,15 +110,17 @@ function playingSpeech() {
 }
 
 describe("Toyota receptionist renderer", () => {
-  test("Pause/Play sits right under Start, wakes as blinking Play, toggles", () => {
+  test("Start Listening sits right under Play, which wakes as blinking Play", () => {
     const gate = new PausableAudioGate({ createAudio: () => ({}) });
     const ctx = setup({ playbackControl: gate });
     const buttons = ctx.container.querySelectorAll("button");
     const labels = buttons.map((b) => b.textContent);
-    const start = labels.indexOf("Start");
-    expect(labels[start + 1]).toBe("Play");
-    expect(labels[start + 2]).toBe("Auto Send");
-    const btn = buttons[start + 1];
+    const play = labels.indexOf("Play");
+    expect(labels[play + 1]).toBe("Start Listening");
+    expect(labels.filter((label) => label === "Start Listening")).toHaveLength(
+      1,
+    );
+    const btn = buttons[play];
     expect(btn.classList.contains("paused")).toBe(true);
     btn.click();
     expect(gate.paused).toBe(false);

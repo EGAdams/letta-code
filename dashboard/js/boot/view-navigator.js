@@ -121,6 +121,7 @@ export function createViewNavigator({ doc = document, nav }) {
       "btn-model-stats",
       "btn-pc-monitor",
       "btn-wsl-interop",
+      "btn-worker-activity",
     ]
       .map((id) => doc.getElementById(id))
       .filter(Boolean);
@@ -136,7 +137,7 @@ export function createViewNavigator({ doc = document, nav }) {
         tab.classList.contains("tab-alert"),
     );
     const allKnown =
-      children.length === 5 &&
+      children.length === 6 &&
       children.every((tab) =>
         ["server-up", "server-concern", "server-down", "server-starting"].some(
           (name) => tab.classList.contains(name),

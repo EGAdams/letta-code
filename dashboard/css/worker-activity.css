@@ -1,0 +1,7 @@
+.worker-activity-table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+.worker-activity-table th, .worker-activity-table td { padding: 5px 8px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+.worker-activity-table th { white-space: nowrap; }
+.worker-task-failed td { color: #b71c1c; }
+.worker-task-queued td { background: #fff8d8; }
+.worker-activity-unavailable { border-left: 4px solid #b8860b; background: #fff8d8; padding: 10px 12px; max-width: 720px; }
+.worker-activity-health { margin-top: 0; }

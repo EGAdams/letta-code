@@ -22,6 +22,10 @@ import {
   progressLabel,
   renderPollPage,
 } from "../abstract/agent-bridge-poll-render.js";
+import {
+  renderBridgeWorkflow,
+  renderWorkerLegend,
+} from "../abstract/bridge-workflow-render.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import { MermaidView } from "../plans/mermaid-view.js";
 
@@ -66,11 +70,14 @@ function loadScript(doc, src) {
 export function createAgentBridgePoll({ doc = document, win = window, http }) {
   const tab = doc.getElementById("btn-poll-settings");
   const body = doc.getElementById("poll-settings-body");
+  const legend = doc.getElementById("worker-legend");
 
   const ABP = {
     last: null,
     offsetMs: 0,
     diagramFor: "",
+    workflowPayload: null,
+    workflowSignature: "",
     edit: {}, // {editing, saving, ok, message, problems}; see renderPollPage
     paintTab(payload) {
       if (!tab) return;
@@ -93,6 +100,7 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
           this.last.polling !== d.polling;
         this.last = d;
         this.paintTab(d);
+        await this.pollWorkflow();
         // Never redraw over a form someone is typing into.
         if (this.isOpen() && firstOrChanged && !this.edit.editing)
           this.render();
@@ -103,12 +111,53 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
           body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
       }
     },
+    async pollWorkflow() {
+      try {
+        const payload = await http.getJSON("/api/worker-activity");
+        // Ignore heartbeat timestamps: the SVG only changes when task/status
+        // telemetry changes, not on every five-second poll tick.
+        const signature = JSON.stringify({
+          tasks_available: payload.tasks_available,
+          tasks_error: payload.tasks_error,
+          tasks: payload.tasks,
+          worker: payload.worker && {
+            name: payload.worker.name,
+            status: payload.worker.status,
+            reason: payload.worker.reason,
+          },
+        });
+        this.workflowPayload = payload;
+        if (legend) legend.innerHTML = renderWorkerLegend(payload);
+        const host = doc.getElementById("abp-workflow");
+        if (host && signature !== this.workflowSignature) {
+          host.innerHTML = renderBridgeWorkflow(payload);
+          this.workflowSignature = signature;
+        }
+      } catch (error) {
+        const payload = {
+          tasks_available: false,
+          tasks_error: `Worker telemetry unavailable: ${error.message}`,
+        };
+        if (legend) legend.innerHTML = renderWorkerLegend(payload);
+        const host = doc.getElementById("abp-workflow");
+        if (host && this.workflowSignature !== "unavailable")
+          host.innerHTML = renderBridgeWorkflow(payload);
+        this.workflowSignature = "unavailable";
+      }
+    },
     render(shown = this.last) {
       if (!shown) return;
       const c = countdown(shown.state, Date.now(), this.offsetMs);
       // Keep the rendered diagram across re-renders: only the text around it changes.
       const keep = doc.getElementById("abp-diagram")?.firstElementChild || null;
       body.innerHTML = renderPollPage(shown, c, this.edit);
+      const workflow = doc.createElement("div");
+      workflow.id = "abp-workflow";
+      workflow.innerHTML = this.workflowPayload
+        ? renderBridgeWorkflow(this.workflowPayload)
+        : "";
+      const workflowAnchor = body.querySelector("#abp-diagram");
+      if (workflowAnchor) workflowAnchor.before(workflow);
       const host = doc.getElementById("abp-diagram");
       const code = pollSequenceDiagram(this.last);
       if (keep && this.diagramFor === code) host.append(keep);
@@ -220,6 +269,7 @@ export function createAgentBridgePoll({ doc = document, win = window, http }) {
     open() {
       if (!body) return;
       body.dataset.open = "1";
+      void this.pollWorkflow();
       if (this.last) this.render();
       else body.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
       void this.poll();

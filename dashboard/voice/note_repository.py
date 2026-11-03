@@ -50,6 +50,37 @@ class FilesystemNoteRepository(NoteRepository):
             handle.write(text)
         return SavedNote(filename=name, path=path)
 
+    def list(self):
+        """Return the existing markdown notes, newest first."""
+        if not os.path.isdir(self.directory):
+            return []
+        return sorted(
+            (name for name in os.listdir(self.directory) if name.endswith(".md")),
+            reverse=True,
+        )
+
+    def read(self, filename: str) -> str:
+        """Read one repository-owned note; reject paths outside the directory."""
+        safe_name = os.path.basename(filename)
+        path = os.path.realpath(os.path.join(self.directory, safe_name))
+        root = os.path.realpath(self.directory)
+        if safe_name != filename or not path.startswith(root + os.sep):
+            raise ValueError("invalid note filename")
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def write(self, filename: str, note: str) -> None:
+        """Update one existing note without allowing path traversal."""
+        safe_name = os.path.basename(filename)
+        path = os.path.realpath(os.path.join(self.directory, safe_name))
+        root = os.path.realpath(self.directory)
+        if safe_name != filename or not path.startswith(root + os.sep):
+            raise ValueError("invalid note filename")
+        if not os.path.isfile(path):
+            raise FileNotFoundError(filename)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(note if note.endswith("\n") else f"{note}\n")
+
 
 def build_note_repository(directory=None) -> NoteRepository:
     return FilesystemNoteRepository(directory)

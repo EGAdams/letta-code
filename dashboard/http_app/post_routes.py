@@ -609,6 +609,21 @@ class PostRoutesMixin:
                 return self.json_response({'ok': False, 'error': f'Could not save the note: {exc}'})
             return self.json_response({'ok': True, 'filename': saved.filename, 'path': saved.path})
 
+        if path == '/api/note-write':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            filename = data.get('filename', '')
+            note = data.get('note', '')
+            if not isinstance(filename, str) or not isinstance(note, str):
+                return self.error_response('filename and note must be strings', 400)
+            try:
+                note_repository.build_note_repository().write(filename, note)
+            except (FileNotFoundError, OSError, ValueError):
+                return self.error_response('Note not found', 404)
+            return self.json_response({'ok': True, 'filename': filename})
+
         if path == '/api/agent-model':
             try:
                 data = json.loads(body)
