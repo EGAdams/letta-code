@@ -21,7 +21,7 @@ Verified 2026-08-19. Re-verify with `tailscale status` — IPs are stable, reach
 | Name | IP | SSH | Role |
 |---|---|---|---|
 | **DESKTOP-2OBSQMC** | 100.102.209.100 | `adamsl@` | **LIVE dashboard** on `:8765`. The one users see. Distro `Ubuntu-26.04` (`resolute`). |
-| Rosemary46 | 100.72.34.38 | local / `adamsl@` | Dev checkout. WSL. |
+| Rosemary46 | 100.72.34.38 | `ssh -p 2222 adamsl@` | Dev checkout. WSL. sshd is on **port 2222**; port 22 refuses. If 2222 also refuses, start it there: `sudo service ssh start`. |
 | DESKTOP-SHDBATI | 100.80.49.10 | `adamsl@` | Letta server. Its `:8765` is only a proxy to the live box — a `curl` succeeding here proves nothing. |
 | desktop-2obsqmc-11 | 100.118.122.75 | ✗ no key | Windows side of 2OBSQMC. Key auth refused for `adamsl`/`NewUser`/`EG`/`eg1972`. |
 | desktop-shdbati-1 | 100.69.80.89 | ✗ no key | Windows side of SHDBATI. Same refusal. |
