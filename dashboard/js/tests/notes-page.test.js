@@ -113,6 +113,30 @@ describe("Notes page", () => {
     expect(server.files["2026-11-03_deed.md"]).toBe("v2");
   });
 
+  test("a second click while the first save is running makes no copy", async () => {
+    const server = fakeServer();
+    const post = server.http.postJSON;
+    let release;
+    const gate = new Promise((r) => {
+      release = r;
+    });
+    server.http.postJSON = async (...args) => {
+      await gate;
+      return post(...args);
+    };
+    const { el } = page(server);
+    await settle();
+    button(el, "New note").click();
+    el["notes-editor-name"].value = "deed";
+    el["notes-editor-text"].value = "v1";
+    el["notes-editor-save"].click();
+    el["notes-editor-save"].click();
+    release();
+    await settle();
+    await settle();
+    expect(Object.keys(server.files)).toEqual(["2026-11-03_deed.md"]);
+  });
+
   test("a saved note survives a reload and reopens with its text", async () => {
     const server = fakeServer({ "2026-11-03_deed.md": "kept text" });
     const { el } = page(server);

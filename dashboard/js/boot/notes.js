@@ -13,6 +13,7 @@ export function createNotes({ doc, http }) {
   const textarea = doc.getElementById("notes-editor-text");
   const status = doc.getElementById("notes-editor-status");
   let selected = "";
+  let saving = false;
 
   const setStatus = (message) => {
     if (status) status.textContent = message;
@@ -100,11 +101,17 @@ export function createNotes({ doc, http }) {
   doc
     .getElementById("notes-editor-save")
     ?.addEventListener("click", async () => {
+      // One save at a time: a second click before a new note's first save
+      // returns would otherwise create a second copy of it.
+      if (saving) return;
+      saving = true;
       setStatus("Saving…");
       try {
         await (selected ? saveExisting() : saveNew());
       } catch (error) {
         setStatus(`Could not save note: ${reason(error)}`);
+      } finally {
+        saving = false;
       }
     });
   doc.getElementById("notes-editor-back")?.addEventListener("click", () => {
