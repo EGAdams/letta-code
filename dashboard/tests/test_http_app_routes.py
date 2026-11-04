@@ -404,6 +404,42 @@ class TestNoteSave:
         assert resp.status == 400
 
 
+class TestNoteWrite:
+    def test_updates_an_existing_note_only(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        (tmp_path / 'a.md').write_text('old\n')
+        (tmp_path / 'b.md').write_text('untouched\n')
+        resp = live.post('/api/note-write', {'filename': 'a.md', 'note': 'new'})
+        assert resp.status == 200 and resp.json['ok'] is True
+        assert (tmp_path / 'a.md').read_text() == 'new\n'
+        assert (tmp_path / 'b.md').read_text() == 'untouched\n'
+
+    def test_a_missing_note_is_a_404_and_is_not_created(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        resp = live.post('/api/note-write', {'filename': 'nope.md', 'note': 'x'})
+        assert resp.status == 404
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_disk_failure_says_why(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        (tmp_path / 'a.md').write_text('old\n')
+        import builtins
+        real_open = builtins.open
+
+        def fake_open(path, mode='r', *a, **k):
+            if str(path).endswith('a.md') and 'w' in mode:
+                raise PermissionError(13, 'Permission denied')
+            return real_open(path, mode, *a, **k)
+        monkeypatch.setattr(builtins, 'open', fake_open)
+        resp = live.post('/api/note-write', {'filename': 'a.md', 'note': 'x'})
+        monkeypatch.setattr(builtins, 'open', real_open)
+        assert resp.status == 500
+        assert 'Permission denied' in resp.json['error']
+
+
 # ==========================================================================
 # /api/server-action — the route that restarts real infrastructure
 # ==========================================================================

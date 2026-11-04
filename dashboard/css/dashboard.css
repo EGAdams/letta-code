@@ -593,6 +593,19 @@ body.startup-loading .sidebar {
   resize: vertical;
 }
 
+.notes-editor-name {
+  display: block;
+  width: min(100%, 850px);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.notes-landing.hidden,
+.notes-editor.hidden,
+.notes-editor-name.hidden {
+  display: none;
+}
+
 .notes-editor [role="status"] {
   margin-left: 10px;
 }

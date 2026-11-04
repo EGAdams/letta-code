@@ -618,10 +618,16 @@ class PostRoutesMixin:
             note = data.get('note', '')
             if not isinstance(filename, str) or not isinstance(note, str):
                 return self.error_response('filename and note must be strings', 400)
+            if not filename.strip():
+                return self.error_response('filename is required', 400)
             try:
                 note_repository.build_note_repository().write(filename, note)
-            except (FileNotFoundError, OSError, ValueError):
+            except (FileNotFoundError, ValueError):
                 return self.error_response('Note not found', 404)
+            except OSError as exc:
+                # A real disk failure (permissions, full disk) is not "not found":
+                # say what happened so the Notes page can show it.
+                return self.error_response(f'Could not save the note: {exc.strerror or exc}', 500)
             return self.json_response({'ok': True, 'filename': filename})
 
         if path == '/api/agent-model':
