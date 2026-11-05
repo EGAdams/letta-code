@@ -54,7 +54,7 @@ export class ReceptionistFailureAlert {
       live.set(`${alert.agent}:${alert.id}`, {
         agent: alert.agent,
         ids: [alert.id],
-        title: `${alert.name || alert.agent}: a task failed`,
+        title: alert.title || `${alert.name || alert.agent}: a task failed`,
         text: alert.spoken || alert.error || "A task failed.",
       });
     }

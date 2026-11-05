@@ -47,6 +47,20 @@ function setup(state) {
 }
 
 describe("ReceptionistFailureAlert", () => {
+  test("an alert's own title wins over the failure title", async () => {
+    const done = {
+      id: "bridge-t_1",
+      agent: "toyota",
+      name: "Toyota",
+      kind: "bridge_finished",
+      title: "Star Trek Bridge: Codex writer finished",
+      spoken: "The Star Trek Bridge says: done.",
+    };
+    const t = setup({ ok: true, alerts: [done], errors: [] });
+    await t.alert.poll();
+    expect(t.notified[0][0]).toBe("Star Trek Bridge: Codex writer finished");
+  });
+
   test("a failed task is shown, spoken and notified once", async () => {
     const t = setup({ ok: true, alerts: [PLAN], errors: [] });
     await t.alert.poll();
