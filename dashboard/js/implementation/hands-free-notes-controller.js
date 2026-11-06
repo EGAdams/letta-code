@@ -135,8 +135,8 @@ export class HandsFreeNotesController {
       if (saved === false) throw new Error("save failed");
       this._state = "idle";
       this._newNoteOpen = false;
-      this._setStatus("Recording stopped. Note saved.");
-      this._speak("Recording stopped. Note saved.");
+      this._setStatus("Recording stopped. Note saved");
+      this._speak("Recording stopped. Note saved");
       return true;
     } catch {
       this._state = "error";
@@ -194,8 +194,9 @@ export class HandsFreeNotesController {
       this._setStatus(`Named ${name}`);
       this._speak(`Named ${name}`);
     } else if (this._dictating) {
-      const separator =
-        this._textarea.value && /\s$/.test(this._textarea.value) ? "" : " ";
+      // A space only between existing text and the new phrase, never at the start of an empty note.
+      const existing = this._textarea.value;
+      const separator = existing && !/\s$/.test(existing) ? " " : "";
       this._textarea.value += separator + phrase;
       this._textarea.dispatch("input");
     }
