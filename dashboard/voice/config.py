@@ -46,6 +46,31 @@ NOTE_COMMAND_AGENT_NAME = os.environ.get(
 # Where "save this" writes to. Outside the repo by default.
 NOTES_DIR = os.environ.get("NOTES_DIR", os.path.join(HOME, "notes"))
 
+# Mailing address is intentionally opt-in: the repository has a confirmed city
+# but no trusted Grand Rapids street address. Never fall back to an unrelated
+# historical address (or invent a street) when this is unset. This boundary
+# also rejects stale out-of-state environment values before they reach the UI.
+_GRAND_RAPIDS_CITY_STATE = "Grand Rapids, MI"
+
+
+def resolve_mailing_location(city_state, address):
+    """Return only a trusted local location; never surface a stale old address."""
+    safe_city_state = (
+        city_state.strip()
+        if city_state.strip().casefold() == _GRAND_RAPIDS_CITY_STATE.casefold()
+        else _GRAND_RAPIDS_CITY_STATE
+    )
+    safe_address = address.strip()
+    if "grand rapids" not in safe_address.casefold() or ", mi" not in safe_address.casefold():
+        safe_address = ""
+    return safe_city_state, safe_address
+
+
+MAILING_CITY_STATE, MAILING_ADDRESS = resolve_mailing_location(
+    os.environ.get("MAILING_CITY_STATE", ""),
+    os.environ.get("MAILING_ADDRESS", ""),
+)
+
 # Known agent names fed to the cleanup model so it can fix mishears (Friday -> Frita).
 # Kept in sync with LETTA_AGENTS in server.py.
 KNOWN_AGENT_NAMES = [

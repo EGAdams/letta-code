@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createNotes } from "../boot/notes.js";
+import { createHash } from "node:crypto";
+import { createNotes, markdownHtml } from "../boot/notes.js";
 import { FakeDocument, FakeElement } from "./_fake-dom.js";
 
 const IDS = [
@@ -9,8 +10,10 @@ const IDS = [
   "notes-editor-name",
   "notes-editor-text",
   "notes-editor-save",
+  "notes-editor-refresh",
   "notes-editor-back",
   "notes-editor-status",
+  "notes-editor-preview",
 ];
 
 /** A fake server holding notes in memory, answering like the real routes. */
@@ -24,9 +27,18 @@ function fakeServer(initial = {}) {
       const name = new URL(url, "http://x").searchParams.get("filename");
       if (name) {
         if (!(name in files)) throw new Error("HTTP 404 — Note not found");
-        return { ok: true, filename: name, note: files[name] };
+        return {
+          ok: true,
+          filename: name,
+          note: files[name],
+          revision: revision(files[name]),
+        };
       }
-      return { ok: true, notes: Object.keys(files).sort().reverse() };
+      const names = Object.keys(files).sort().reverse();
+      const revisions = Object.fromEntries(
+        names.map((n) => [n, revision(files[n])]),
+      );
+      return { ok: true, notes: names, revisions };
     },
     async postJSON(url, body) {
       calls.push(["POST", url, body]);
@@ -37,13 +49,17 @@ function fakeServer(initial = {}) {
         for (let n = 2; name in files; n++)
           name = name.replace(/(-\d+)?\.md$/, `-${n}.md`);
         files[name] = body.note;
-        return { ok: true, filename: name };
+        return { ok: true, filename: name, revision: revision(files[name]) };
       }
       if (url === "/api/note-write") {
         if (!(body.filename in files))
           throw new Error("HTTP 404 — Note not found");
         files[body.filename] = body.note;
-        return { ok: true, filename: body.filename };
+        return {
+          ok: true,
+          filename: body.filename,
+          revision: revision(files[body.filename]),
+        };
       }
       throw new Error("HTTP 404");
     },
@@ -51,7 +67,26 @@ function fakeServer(initial = {}) {
   return { files, calls, http };
 }
 
-function page(server) {
+function revision(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * An isolated in-memory stand-in for localStorage. Each test gets its own by
+ * default (via page()'s default parameter) so the unread-read-state feature
+ * never leaks between tests through a real, process-wide globalThis.localStorage
+ * — only a test that explicitly reuses the same instance (simulating EG
+ * reloading the same browser) shares one.
+ */
+function createFakeStorage() {
+  const store = new Map();
+  return {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+  };
+}
+
+function page(server, { storage = createFakeStorage() } = {}) {
   const doc = new FakeDocument();
   const el = {};
   for (const id of IDS) {
@@ -64,12 +99,14 @@ function page(server) {
     el[id].id = id;
   }
   el["notes-editor"].classList.add("hidden");
-  createNotes({ doc, http: server.http });
-  return { doc, el };
+  const api = createNotes({ doc, http: server.http, storage });
+  return { doc, el, api, storage };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
-const buttons = (el) => el["notes-landing"].children || [];
+// Note buttons may now sit inside a category <details>, not directly under
+// notes-landing, so this walks the whole subtree rather than just one level.
+const buttons = (el) => el["notes-landing"].querySelectorAll(".notes-choice");
 const button = (el, label) => buttons(el).find((b) => b.textContent === label);
 
 describe("Notes page", () => {
@@ -151,6 +188,51 @@ describe("Notes page", () => {
     expect(el["notes-editor-status"].textContent).toBe("Saved.");
   });
 
+  test("Refresh Notes reloads persisted text without reloading the page", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "persisted v1" });
+    const { el } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+    server.files["2026-11-03_deed.md"] = "persisted v2";
+    el["notes-editor-refresh"].click();
+    await settle();
+    expect(el["notes-editor-text"].value).toBe("persisted v2");
+    expect(
+      server.calls.filter(
+        ([method, url]) => method === "GET" && url.includes("filename="),
+      ).length,
+    ).toBe(2);
+    // Both note reads (open, then refresh) carry a cache-busting _read; the list load has its own.
+    expect(
+      server.calls.filter(
+        ([method, url]) =>
+          method === "GET" &&
+          url.includes("filename=") &&
+          url.includes("_read="),
+      ).length,
+    ).toBe(2);
+  });
+
+  test("Refresh Notes preserves dirty edits unless confirmed", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "persisted" });
+    const { el } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+    el["notes-editor-text"].value = "unsaved edit";
+    const confirm = globalThis.confirm;
+    globalThis.confirm = () => false;
+    try {
+      el["notes-editor-refresh"].click();
+      await settle();
+      expect(el["notes-editor-text"].value).toBe("unsaved edit");
+      expect(el["notes-editor-status"].textContent).toContain("cancelled");
+    } finally {
+      globalThis.confirm = confirm;
+    }
+  });
+
   test("a missing name says so instead of doing nothing", async () => {
     const server = fakeServer();
     const { el } = page(server);
@@ -179,5 +261,238 @@ describe("Notes page", () => {
     el["notes-editor-save"].click();
     await settle();
     expect(el["notes-editor-status"].textContent).toContain("disk full");
+  });
+
+  // A Bridge write lands through the same /api/notes read the browser already
+  // polls every 5s (see pollSelected) — no separate "refresh" channel exists,
+  // so these tests stand in for a ChatGPT Bridge task editing the file on disk.
+  test("polling picks up a note a Bridge task wrote while this note was open", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "persisted v1" });
+    const { el, api } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+
+    server.files["2026-11-03_deed.md"] = "persisted v2 (bridge write)";
+    await api.pollSelected();
+
+    expect(el["notes-editor-text"].value).toBe("persisted v2 (bridge write)");
+    expect(el["notes-editor-status"].textContent).toBe(
+      "Updated from another Notes view.",
+    );
+  });
+
+  test("polling does not clobber unsaved edits when a Bridge task writes the same note", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "persisted v1" });
+    const { el, api } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+
+    el["notes-editor-text"].value = "unsaved local edit";
+    server.files["2026-11-03_deed.md"] =
+      "bridge write, different from the edit above";
+    await api.pollSelected();
+
+    expect(el["notes-editor-text"].value).toBe("unsaved local edit");
+    expect(el["notes-editor-status"].textContent).toContain(
+      "changed elsewhere",
+    );
+  });
+
+  test("polling is a no-op when no note is open, even if the Bridge wrote one", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "persisted v1" });
+    const { api } = page(server);
+    await settle();
+    server.calls.length = 0;
+
+    await api.pollSelected();
+
+    expect(server.calls).toEqual([]);
+  });
+
+  test("a yellow highlight an agent wrote renders live in the preview, with no refresh", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "plain text" });
+    const { el, api } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+    expect(el["notes-editor-preview"].innerHTML).not.toContain(
+      "notes-highlight-yellow",
+    );
+
+    server.files["2026-11-03_deed.md"] =
+      "see the {{highlight:yellow}}legal description{{/highlight}} below";
+    await api.pollSelected();
+
+    expect(el["notes-editor-preview"].innerHTML).toContain(
+      '<mark class="notes-highlight-yellow">legal description</mark>',
+    );
+  });
+
+  test("the deed preview marks preparer, legal-description, and tax review lines without changing Markdown", async () => {
+    const deed = [
+      "# Personal Representative's Deed of Distribution",
+      "Prepared by: [NOT VERIFIED]",
+      "Legal description: Lot <1> & parcel 42 [VERIFY]",
+      "Transfer-tax exemption applies; property-tax exemption review required. [NOT VERIFIED]",
+      "Sources for This Draft: county records",
+    ].join("\n");
+    const server = fakeServer({ "personal-representative-deed.md": deed });
+    const { el } = page(server);
+    await settle();
+    button(el, "personal-representative-deed.md").click();
+    await settle();
+
+    const html = el["notes-editor-preview"].innerHTML;
+    expect(html.match(/notes-deed-review-/g)?.length).toBe(3);
+    expect(html).toContain("notes-deed-review-preparer");
+    expect(html).toContain("notes-deed-review-legal-description");
+    expect(html).toContain("notes-deed-review-tax-language");
+    expect(html).toContain("Lot &lt;1&gt; &amp; parcel 42");
+    expect(html).not.toContain("Sources for This Draft</mark>");
+    expect(el["notes-editor-text"].value).toBe(deed);
+    expect(server.files["personal-representative-deed.md"]).toBe(deed);
+  });
+
+  test("deed review marks do not leak to an unrelated note", async () => {
+    const text =
+      "Personal Representative: unrelated note\nLegal description\nProperty-tax exemption";
+    const server = fakeServer({ "estate-notes.md": text });
+    const { el } = page(server);
+    await settle();
+    button(el, "estate-notes.md").click();
+    await settle();
+    expect(el["notes-editor-preview"].innerHTML).not.toContain(
+      "notes-deed-review-",
+    );
+  });
+
+  test("a live poll update preserves the textarea caret and both panes' scroll position", async () => {
+    const server = fakeServer({ "2026-11-03_deed.md": "line one\nline two" });
+    const { el, api } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+    el["notes-editor-text"].selectionStart = 4;
+    el["notes-editor-text"].selectionEnd = 4;
+    el["notes-editor-text"].scrollTop = 42;
+    el["notes-editor-preview"].scrollTop = 17;
+
+    server.files["2026-11-03_deed.md"] =
+      "line one\nline two\nline three (bridge write)";
+    await api.pollSelected();
+
+    expect(el["notes-editor-text"].value).toBe(
+      "line one\nline two\nline three (bridge write)",
+    );
+    expect(el["notes-editor-text"].selectionStart).toBe(4);
+    expect(el["notes-editor-text"].selectionEnd).toBe(4);
+    expect(el["notes-editor-text"].scrollTop).toBe(42);
+    expect(el["notes-editor-preview"].scrollTop).toBe(17);
+  });
+
+  describe("markdownHtml — color/highlight spans (notes_formatting.py's markup)", () => {
+    test("a highlight span becomes a <mark>, a color span becomes a colored <span>", () => {
+      const html = markdownHtml(
+        "{{highlight:yellow}}important{{/highlight}} and {{color:red}}urgent{{/color}}",
+      );
+      expect(html).toContain(
+        '<mark class="notes-highlight-yellow">important</mark>',
+      );
+      expect(html).toContain('<span class="notes-color-red">urgent</span>');
+    });
+
+    test("an unknown color name renders as the literal markup text, not a span", () => {
+      const html = markdownHtml("{{highlight:plaid}}text{{/highlight}}");
+      expect(html).toContain("{{highlight:plaid}}text{{/highlight}}");
+      expect(html).not.toContain("<mark");
+    });
+
+    test("bold/code still apply to the rest of the line outside a span", () => {
+      const html = markdownHtml(
+        "**bold** {{highlight:yellow}}hi{{/highlight}} `code`",
+      );
+      expect(html).toContain("<strong>bold</strong>");
+      expect(html).toContain("<code>code</code>");
+      expect(html).toContain('<mark class="notes-highlight-yellow">hi</mark>');
+    });
+  });
+
+  describe("category accordion", () => {
+    const categories = (el) =>
+      el["notes-landing"].children.filter((c) => c.tagName === "DETAILS");
+    const summaryOf = (details) =>
+      details.children.find((c) => c.tagName === "SUMMARY");
+
+    test("a note named with a category slug sits under that category's own details, closed by default", async () => {
+      const server = fakeServer({
+        "2026-11-03_01-scoreboard-development-starter.md": "scoreboard notes",
+        "2026-11-03_deed.md": "pre-existing, no category token",
+      });
+      const { el } = page(server);
+      await settle();
+
+      const groups = categories(el);
+      const scoreboard = groups.find((d) =>
+        summaryOf(d).textContent.startsWith("01. Scoreboard Development"),
+      );
+      expect(scoreboard).toBeTruthy();
+      expect(summaryOf(scoreboard).textContent).toBe(
+        "01. Scoreboard Development (1 note)",
+      );
+      expect(scoreboard.getAttribute("open")).toBeNull();
+      expect(
+        button(el, "2026-11-03_01-scoreboard-development-starter.md"),
+      ).toBeTruthy();
+    });
+
+    test("a note without a category token lands in 'All other notes', open by default", async () => {
+      const server = fakeServer({ "2026-11-03_deed.md": "kept text" });
+      const { el } = page(server);
+      await settle();
+
+      const groups = categories(el);
+      const other = groups.find((d) =>
+        summaryOf(d).textContent.startsWith("All other notes"),
+      );
+      expect(other).toBeTruthy();
+      expect(summaryOf(other).textContent).toBe("All other notes (1 note)");
+      expect(other.getAttribute("open")).toBe("");
+      // Unaffected by the new grouping: still clickable, still opens unchanged.
+      button(el, "2026-11-03_deed.md").click();
+      await settle();
+      expect(el["notes-editor-text"].value).toBe("kept text");
+    });
+
+    test("all 10 standing categories render even with no notes in any of them yet", async () => {
+      const server = fakeServer();
+      const { el } = page(server);
+      await settle();
+
+      const groups = categories(el);
+      const standing = groups.filter((d) =>
+        /^\d{2}\. /.test(summaryOf(d).textContent),
+      );
+      expect(standing.length).toBe(10);
+      for (const details of standing) {
+        expect(summaryOf(details).textContent).toContain("(0 notes)");
+        expect(details.getAttribute("open")).toBeNull();
+      }
+    });
+
+    test("'New note' stays a direct, always-visible control outside any category", async () => {
+      const server = fakeServer({
+        "2026-11-03_01-scoreboard-development.md": "x",
+      });
+      const { el } = page(server);
+      await settle();
+      const direct = el["notes-landing"].children;
+      expect(
+        direct.some(
+          (c) => c.tagName === "BUTTON" && c.textContent === "New note",
+        ),
+      ).toBe(true);
+    });
   });
 });

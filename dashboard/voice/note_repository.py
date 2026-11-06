@@ -7,6 +7,7 @@ input, and path safety is not something to re-derive inside a prompt.
 import datetime
 import os
 import re
+import hashlib
 
 from . import config
 from .note_models import SavedNote
@@ -69,7 +70,17 @@ class FilesystemNoteRepository(NoteRepository):
         with open(path, encoding="utf-8") as handle:
             return handle.read()
 
-    def write(self, filename: str, note: str) -> None:
+    def revision(self, filename: str) -> str:
+        """Return a cheap content revision for conflict-safe browser sync."""
+        safe_name = os.path.basename(filename)
+        path = os.path.realpath(os.path.join(self.directory, safe_name))
+        root = os.path.realpath(self.directory)
+        if safe_name != filename or not path.startswith(root + os.sep):
+            raise ValueError("invalid note filename")
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+
+    def write(self, filename: str, note: str, expected_revision: str = "") -> str:
         """Update one existing note without allowing path traversal."""
         safe_name = os.path.basename(filename)
         path = os.path.realpath(os.path.join(self.directory, safe_name))
@@ -78,8 +89,11 @@ class FilesystemNoteRepository(NoteRepository):
             raise ValueError("invalid note filename")
         if not os.path.isfile(path):
             raise FileNotFoundError(filename)
+        if expected_revision and self.revision(filename) != expected_revision:
+            raise FileExistsError("note changed since it was opened")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(note if note.endswith("\n") else f"{note}\n")
+        return self.revision(filename)
 
 
 def build_note_repository(directory=None) -> NoteRepository:
