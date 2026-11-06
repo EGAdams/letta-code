@@ -1,0 +1,19 @@
+/* <push-button-bank> tokens: '57 Delco chrome on a dark dash plate. */
+:host {
+  --key-ink: #2b2620;
+  --key-press-ms: 90ms;
+  display: block;
+}
+.radio { display: flex; justify-content: center; }
+.bank { width: 100%; max-width: 300px; height: auto; display: block; }
+.plate { fill: url(#plate); stroke: #0b0a08; stroke-width: 1; }
+.slot { fill: #050403; }
+.face { fill: url(#chrome); stroke: #5b6168; stroke-width: .6; }
+.lip { fill: #e9ecef; stroke: #8b9198; stroke-width: .5; }
+.rib { stroke: rgba(70, 76, 82, .55); stroke-width: .6; }
+.label, .engrave { font: 700 8px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: .4px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.label { fill: var(--key-ink); }
+.engrave { fill: rgba(255, 255, 255, .7); }
+.sink { fill: url(#slot-shadow); opacity: 0; pointer-events: none; }
+.key { cursor: pointer; outline: none; }
+.cap { transition: transform var(--key-press-ms) ease-out, filter var(--key-press-ms) ease-out; filter: drop-shadow(0 2px 1.2px rgba(0, 0, 0, .75)); }

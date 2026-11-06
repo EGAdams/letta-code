@@ -1,0 +1,15 @@
+/* <alert-list> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: block; }
+:host([hidden]) { display: none; }
+.rows { list-style: none; margin: 0; padding: 0; font: 0.8rem/1.35 system-ui, sans-serif; }
+li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 2px 0; }
+.label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mon-text); }
+.text { color: var(--mon-muted); max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

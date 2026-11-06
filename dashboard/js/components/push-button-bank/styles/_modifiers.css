@@ -1,0 +1,8 @@
+/* <push-button-bank> modifiers: a pressed key is sunk into its slot. */
+.key[aria-checked="true"] .cap { transform: translateY(3px); filter: none; }
+.key[aria-checked="true"] .face { fill: url(#chrome-in); }
+.key[aria-checked="true"] .lip { opacity: 0; }
+.key[aria-checked="true"] .engrave { fill: rgba(255, 255, 255, .25); }
+.key[aria-checked="true"] .sink { opacity: 1; }
+.key:not([aria-checked="true"]):hover .face { filter: brightness(1.06); }
+.key:focus-visible .slot { stroke: #ffd43b; stroke-width: 1.5; }

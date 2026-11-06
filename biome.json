@@ -5,13 +5,14 @@
   "files": {
     "experimentalScannerIgnores": [
       "vendor/**",
+      "dashboard/vendor/**",
       "src/skills/custom/**",
       "dashboard/training/dist/**"
     ]
   },
   "overrides": [
     {
-      "includes": ["vendor/**"],
+      "includes": ["vendor/**", "dashboard/vendor/**"],
       "linter": { "enabled": false },
       "formatter": { "enabled": false }
     },

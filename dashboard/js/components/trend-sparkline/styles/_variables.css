@@ -1,0 +1,13 @@
+/* <trend-sparkline> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.chart { display: flex; justify-content: center; width: 100%; }
+.caption { font: 0.8rem/1.3 system-ui, sans-serif; color: var(--mon-muted); text-align: center; }
+text { font: 600 18px system-ui, sans-serif; fill: var(--mon-text); }

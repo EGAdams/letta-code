@@ -1,0 +1,3 @@
+/* <all-monitors-page> modifiers: state classes and host attributes. */
+.count.crit { font-weight: 700; color: #c92a2a; }
+.count.warn { font-weight: 600; }

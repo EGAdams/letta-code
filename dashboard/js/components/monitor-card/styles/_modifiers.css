@@ -1,0 +1,5 @@
+/* <monitor-card> modifiers: state classes and host attributes. */
+:host([data-level="ok"]) { --mon-level: #2f9e44; }
+:host([data-level="warn"]) { --mon-level: #f08c00; }
+:host([data-level="crit"]) { --mon-level: #e03131; }
+:host([data-level="unknown"]) .card { opacity: .8; }

@@ -1,0 +1,11 @@
+/* <monitor-led> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: inline-flex; line-height: 0; }
+.led { display: inline-flex; }

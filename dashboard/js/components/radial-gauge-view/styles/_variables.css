@@ -1,0 +1,13 @@
+/* <radial-gauge-view> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: block; }
+.dial { margin: 0; display: flex; flex-direction: column; align-items: center; }
+canvas { max-width: 100%; }
+.reading { margin-top: -18px; font: 600 1.25rem/1 system-ui, sans-serif; color: var(--mon-text); font-variant-numeric: tabular-nums; }

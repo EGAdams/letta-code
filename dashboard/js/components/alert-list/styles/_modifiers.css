@@ -1,0 +1,3 @@
+/* <alert-list> modifiers: state classes and host attributes. */
+li.crit .text { color: #c92a2a; font-weight: 600; }
+li.more { display: block; color: var(--mon-muted); padding-left: 18px; }

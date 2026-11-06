@@ -1,0 +1,21 @@
+/* <monitor-card> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: block; min-width: 0; }
+.card {
+  height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; background: var(--mon-card); color: var(--mon-text);
+  border: 1px solid var(--mon-border); border-top: 4px solid var(--mon-level, #ced4da);
+  border-radius: var(--mon-radius); box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+.head { display: flex; align-items: center; gap: 8px; }
+.title { flex: 1; margin: 0; font: 600 0.95rem/1.2 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.age { font: 0.7rem system-ui, sans-serif; color: var(--mon-muted); font-variant-numeric: tabular-nums; }
+.body:empty { display: none; }
+.detail { margin: auto 0 0; font: 0.78rem/1.35 system-ui, sans-serif; color: var(--mon-muted); }

@@ -1,0 +1,17 @@
+/* <all-monitors-page> tokens; fall back to the dashboard's own --card / --text. */
+:host {
+  --mon-card: var(--card, #fff);
+  --mon-text: var(--text, #333);
+  --mon-muted: #6c757d;
+  --mon-border: #dee2e6;
+  --mon-track: #e9ecef;
+  --mon-radius: 8px;
+}
+:host { display: block; }
+.page { display: flex; flex-direction: column; gap: 18px; padding: 4px 0 24px; }
+.summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.summary h2 { margin: 0; font: 700 1.3rem/1.2 system-ui, sans-serif; color: var(--mon-text); }
+.counts { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 0.85rem system-ui, sans-serif; color: var(--mon-text); }
+.count { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.group h3 { margin: 0 0 8px; font: 600 0.78rem/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--mon-muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
