@@ -228,9 +228,9 @@ export function renderTaskSummary(payload) {
     return '<p class="bridge-summary is-muted">Task counts unavailable: no task ledger data.</p>';
   const c = summarizeTasks(payload);
   const chip = (group, label) =>
-    `<span class="bridge-chip is-${group}">${label} <strong>${c[group]}</strong></span>`;
+    `<span class="bridge-chip is-${group}${group === "running" && c.running > 0 ? " has-running" : ""}">${group === "running" && c.running > 0 ? '<span class="bridge-running-indicator" aria-hidden="true"></span>' : ""}${label} <strong>${c[group]}</strong></span>`;
   const other = c.other ? chip("other", "Other") : "";
-  return `<p class="bridge-summary">${chip("queued", "Queued")}${chip("running", "Running")}${chip("completed", "Completed")}${chip("failed", "Failed")}${c.cancelled ? chip("cancelled", "Cancelled") : ""}${other}<span class="bridge-summary-note">of the ${c.total} most recent ledger rows</span></p>`;
+  return `<p class="bridge-summary">${chip("queued", "Queued")}${chip("running", "Running")}${chip("completed", "Succeeded")}${chip("failed", "Failed")}${c.cancelled ? chip("cancelled", "Cancelled") : ""}${other}<span class="bridge-summary-note">of the ${c.total} most recent ledger rows</span></p>`;
 }
 
 /**

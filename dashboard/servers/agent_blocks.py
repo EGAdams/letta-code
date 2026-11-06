@@ -19,7 +19,7 @@ class ServiceStartResult(StrictModel):
 
 
 class AgentBlocksServer:
-    """Start the SPA server once, leaving health policy outside the UI."""
+    """Request the independent user service; never own the SPA process."""
 
     def __init__(
         self,
@@ -28,7 +28,7 @@ class AgentBlocksServer:
         startup_log: str | Path,
         health_url: str = 'http://localhost:8931/',
         health_opener: Callable = urllib.request.urlopen,
-        launcher: Callable = subprocess.Popen,
+        launcher: Callable = subprocess.run,
         mark_starting: Callable[[str], None] = lambda _key: None,
     ) -> None:
         self._start_script = Path(start_script)
@@ -50,7 +50,7 @@ class AgentBlocksServer:
             return False
 
     def start(self) -> ServiceStartResult:
-        """Idempotently launch the detached local SPA server."""
+        """Idempotently request systemd startup outside the dashboard cgroup."""
         if self.is_running():
             return ServiceStartResult(
                 ok=True,
@@ -68,17 +68,18 @@ class AgentBlocksServer:
                 log_file.write(f'\n--- launch requested {timestamp} ---\n')
                 log_file.flush()
                 self._launcher(
-                    ['bash', str(self._start_script)],
+                    ['systemctl', '--user', 'start', '--no-block',
+                     'agent-blocks-server.service'],
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
-                    cwd=str(self._start_script.parent),
-                    start_new_session=True,
+                    check=True,
+                    timeout=10,
                 )
             self._mark_starting('agent-blocks')
             return ServiceStartResult(
                 ok=True,
-                text=(f'Launched {self._start_script.name} locally — tailing '
+                text=(f'Requested agent-blocks-server.service — tailing '
                       f'{self._startup_log}'),
             )
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             return ServiceStartResult(ok=False, text=str(exc))

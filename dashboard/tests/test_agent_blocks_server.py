@@ -1,3 +1,5 @@
+import subprocess
+
 import server
 from servers.agent_blocks import AgentBlocksServer
 
@@ -28,7 +30,7 @@ def test_healthy_server_is_not_started_twice(tmp_path):
     assert launched == []
 
 
-def test_down_server_launches_the_spa_once_and_marks_it_starting(tmp_path):
+def test_down_server_requests_independent_service_and_marks_it_starting(tmp_path):
     script = tmp_path / 'start.sh'
     script.write_text('#!/usr/bin/env bash\n', encoding='utf-8')
     log = tmp_path / 'startup.log'
@@ -49,9 +51,11 @@ def test_down_server_launches_the_spa_once_and_marks_it_starting(tmp_path):
     result = service.start()
 
     assert result.ok is True
-    assert launched[0][0] == (['bash', str(script)],)
-    assert launched[0][1]['cwd'] == str(script.parent)
-    assert launched[0][1]['start_new_session'] is True
+    assert launched[0][0] == (['systemctl', '--user', 'start', '--no-block',
+                              'agent-blocks-server.service'],)
+    assert launched[0][1]['check'] is True
+    assert launched[0][1]['timeout'] == 10
+    assert 'start_new_session' not in launched[0][1]
     assert marked == ['agent-blocks']
     assert 'launch requested' in log.read_text(encoding='utf-8')
 
@@ -118,3 +122,24 @@ def test_dashboard_declares_agent_blocks_as_a_startup_dependency():
 
     assert 'agent-blocks-autostart' in tasks
     assert tasks['agent-blocks-autostart'].target == server.ensure_agent_blocks_server
+
+
+def test_systemd_failure_is_reported_without_launching_a_fallback(tmp_path):
+    script = tmp_path / 'start.sh'
+    script.touch()
+    calls = []
+
+    def fail_start(command, **kwargs):
+        calls.append(command)
+        raise subprocess.CalledProcessError(1, command)
+
+    service = AgentBlocksServer(
+        start_script=script,
+        startup_log=tmp_path / 'startup.log',
+        health_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError('connection refused')),
+        launcher=fail_start,
+    )
+
+    assert service.start().ok is False
+    assert len(calls) == 1

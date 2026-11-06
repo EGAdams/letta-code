@@ -105,6 +105,22 @@ describe("bridge workflow telemetry mapping", () => {
     expect(renderWorkerLegend(payload)).toContain("task b");
   });
 
+  test("marks the running count with a yellow activity indicator only while work runs", () => {
+    const running = renderBridgeWorkflow(
+      ledger([{ id: "a", worker_id: "worker1", status: "running" }]),
+    );
+    expect(running).toContain("bridge-chip is-running has-running");
+    expect(running).toContain('class="bridge-running-indicator"');
+
+    const idle = renderBridgeWorkflow(
+      ledger([{ id: "a", worker_id: "worker1", status: "completed" }]),
+    );
+    expect(idle).toContain(
+      'bridge-chip is-running">Running <strong>0</strong>',
+    );
+    expect(idle).not.toContain("bridge-running-indicator");
+  });
+
   test("markers sit inside the box for their stage", () => {
     const html = renderBridgeWorkflow(
       ledger([

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "codex",
+    "label": "Codex",
+    "task_capabilities": ["diagnose", "review"],
+    "can_write": false,
+    "cost_tier": "low",
+    "dispatch_strategy": "secondary",
+    "verify_kind": "cli",
+    "verify_arg": "codex"
+  },
+  {
+    "id": "codex-writer",
+    "label": "Codex Writer",
+    "task_capabilities": ["diagnose", "review", "write"],
+    "can_write": true,
+    "cost_tier": "medium",
+    "dispatch_strategy": "primary",
+    "verify_kind": "cli",
+    "verify_arg": "codex"
+  },
+  {
+    "id": "claude-sonnet",
+    "label": "Claude Sonnet",
+    "task_capabilities": ["diagnose", "review", "write"],
+    "can_write": true,
+    "cost_tier": "medium",
+    "dispatch_strategy": "primary",
+    "verify_kind": "credentials",
+    "verify_arg": "~/.claude/.credentials.json"
+  },
+  {
+    "id": "claude-opus",
+    "label": "Claude Opus",
+    "task_capabilities": [],
+    "can_write": false,
+    "cost_tier": "high",
+    "dispatch_strategy": "unavailable",
+    "verify_kind": "none",
+    "verify_arg": "not configured in this deployment: no runtime or credential check has been wired up for it yet"
+  },
+  {
+    "id": "astra",
+    "label": "Astra",
+    "task_capabilities": [],
+    "can_write": false,
+    "cost_tier": "unknown",
+    "dispatch_strategy": "unavailable",
+    "verify_kind": "none",
+    "verify_arg": "identity unverified: Astra is not known to name a specific model or API in this deployment"
+  }
+]

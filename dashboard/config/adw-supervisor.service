@@ -1,0 +1,20 @@
+[Unit]
+Description=Independent read-only ADW task supervisor
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=%h/letta-code/dashboard
+ExecStart=%h/agent_blocks/lancedb_memory/.venv/bin/python -B -m monitoring.adw_supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.cache/agent_bridge
+
+[Install]
+WantedBy=default.target

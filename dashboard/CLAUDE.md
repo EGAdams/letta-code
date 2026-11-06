@@ -207,6 +207,7 @@ Each of these is a real subsystem with its own invariants — read the doc befor
 | `docs/voice.md` | voice pipeline (`voice/`), Toyota's two conversation brains (`toyota_service.py`), agents-home router (`router/`), Input Options "Send", phone/mic HTTPS setup |
 | `docs/finance-intake.md` | ROL Finance reports, Recent Report, scanners + health LEDs, scan → Mazda intake, Trainer escalation, statement review, LLM fallback chains |
 | `docs/operations.md` | Project Plans tab + Voice Communication workspace, server health/restart/Model Stats, boot autostart services |
+| `docs/adw-supervisor.md` | Independent read-only ADW task supervisor (`monitoring/adw_supervisor.py`): escalation policy, state file, activation steps, repair/validation history |
 
 One dependency lives outside this repo: Toyota's preferred brain is the
 `receptionist_team` sidecar in `~/agent_blocks/lancedb_memory` (user unit

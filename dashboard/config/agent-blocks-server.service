@@ -1,0 +1,17 @@
+[Unit]
+Description=Agent Blocks documentation server (port 8931)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExitType=cgroup
+WorkingDirectory=%h/agent_blocks/spa_documentation
+ExecStart=%h/agent_blocks/spa_documentation/start.sh 8931
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
