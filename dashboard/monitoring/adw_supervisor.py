@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from monitoring import agent_bridge_poll, model_registry, worker_supervisor
+from monitoring import agent_bridge_poll, model_registry, worker_lanes, worker_supervisor
 from monitoring.supervisor_contracts import ITaskLedgerReader
 from monitoring.supervisor_sources import FileLedgerReader, GatewayAwareLedgerReader, PostOfficeLedgerReader
 from monitoring.supervisor_policy import (MAX_EVENTS, Thresholds, TaskEscalationState,
@@ -53,6 +53,15 @@ def _atomic_write(path: Path, payload: dict) -> None:
         os.replace(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
+
+
+def _worker_lanes(now: float) -> list[dict] | None:
+    """Each installed worker lane's own process and heartbeat, so a crash of either worker is recorded by the
+    supervisor that runs outside both. `None` (not a made-up all-clear) when they cannot be observed."""
+    try:
+        return worker_lanes.lane_reports(now=now)
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 def _worker_diagnostic(tasks: list[dict] | None, now: float) -> dict | None:
@@ -121,6 +130,7 @@ def run_cycle(
         "thresholds": vars(thresholds), "tasks": states, "alerts": alerts,
         "unknown_task_ids": unknown,
         "worker_diagnostic": _worker_diagnostic(tasks if not observation.stale else None, now),
+        "worker_lanes": _worker_lanes(now),
         "models": models,
     }
     _atomic_write(state_path, snapshot)

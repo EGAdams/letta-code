@@ -38,7 +38,7 @@ def test_payload_round_trips_the_service_dict_from_agent_bridge_poll(tmp_path, m
     monkeypatch.setattr(worker_activity, "DEFAULT_SNAPSHOT", tmp_path / "missing.json")
     monkeypatch.delenv("WORKER_ACTIVITY_SNAPSHOT", raising=False)
     service = agent_bridge_poll.ServiceState(active="active", pid=4242)
-    monkeypatch.setattr(agent_bridge_poll, "agent_bridge_poll_payload", lambda: {
+    monkeypatch.setattr(agent_bridge_poll, "agent_bridge_poll_payload", lambda *_lane: {
         "polling": "active", "reason": "polling",
         "service": service.model_dump(mode="json"),
         "state": {"heartbeat_at": 1000}, "now": 1000.0,
@@ -51,6 +51,7 @@ def test_payload_round_trips_the_service_dict_from_agent_bridge_poll(tmp_path, m
     assert result["tasks_available"] is False
     assert result["diagnostic"]["status"] in {"healthy", "offline", "stalled", "unknown"}
     assert result["worker"]["service"]["pid"] == 4242
+    assert [lane["lane"] for lane in result["workers"]] == ["general", "express"]
 
 
 def test_escalation_is_honestly_unavailable_without_a_supervisor_state_file(tmp_path, monkeypatch):

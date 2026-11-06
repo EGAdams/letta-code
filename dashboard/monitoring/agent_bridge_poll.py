@@ -57,6 +57,7 @@ class ServiceState(BaseModel):
     enabled: str = 'unknown'       # UnitFileState: enabled, disabled...
     pid: int = 0
     started_at: float | None = None
+    loaded: str = ''               # systemd LoadState: loaded, or not-found when the unit was never installed
 
 
 class SettingRow(BaseModel):
@@ -85,11 +86,11 @@ class PollPagePayload(BaseModel):
     now: float
 
 
-def _systemctl_show() -> ServiceState:
+def _systemctl_show(service: str = SERVICE) -> ServiceState:
     try:
         out = subprocess.run(
-            ['systemctl', '--user', 'show', SERVICE, '--timestamp=unix',
-             '-p', 'ActiveState', '-p', 'SubState', '-p', 'UnitFileState',
+            ['systemctl', '--user', 'show', service, '--timestamp=unix',
+             '-p', 'ActiveState', '-p', 'SubState', '-p', 'UnitFileState', '-p', 'LoadState',
              '-p', 'MainPID', '-p', 'ActiveEnterTimestamp'],
             capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
@@ -104,6 +105,7 @@ def parse_show(out: str) -> ServiceState:
     return ServiceState(
         active=kv.get('ActiveState') or 'unknown', sub=kv.get('SubState', ''),
         enabled=kv.get('UnitFileState') or 'unknown',
+        loaded=kv.get('LoadState', ''),
         pid=int(kv.get('MainPID') or 0),
         started_at=float(started) if started.isdigit() and int(started) else None)
 
@@ -160,9 +162,10 @@ def classify(service: ServiceState, state: dict | None,
     return 'active', 'polling'
 
 
-def agent_bridge_poll_payload() -> dict:
-    service = _systemctl_show()
-    state, _ = _read_json(STATE_PATH)
+def agent_bridge_poll_payload(service_name: str = SERVICE, state_path: Path | None = None) -> dict:
+    """The poll page's payload for one worker lane; the defaults are the general lane, as before."""
+    service = _systemctl_show(service_name)
+    state, _ = _read_json(state_path or STATE_PATH)
     raw, settings_error = _read_json(SETTINGS_PATH)
     polling, reason = classify(service, state, raw, time.localtime().tm_hour)
     changed = False

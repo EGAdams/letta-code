@@ -12,7 +12,7 @@ DASHBOARD = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DASHBOARD))
 TESTS = (
     'test_adw_supervisor.py', 'test_supervisor_sources.py', 'test_model_registry.py',
-    'test_worker_activity.py', 'test_worker_supervisor.py',
+    'test_worker_activity.py', 'test_worker_supervisor.py', 'test_worker_lanes.py',
 )
 
 if __name__ == '__main__':

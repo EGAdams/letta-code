@@ -20,6 +20,7 @@ from monitoring.supervisor_contracts import PublishedSupervisorState
 from monitoring import agent_bridge_poll
 from monitoring import model_registry
 from monitoring import worker_restart
+from monitoring import worker_lanes
 from monitoring import worker_supervisor
 
 DEFAULT_SNAPSHOT = Path(os.path.expanduser("~/.cache/agent_bridge/worker_activity.json"))
@@ -68,7 +69,7 @@ def _escalation() -> dict:
     # A fresh file copy must not make an old supervisor heartbeat fresh.
     stamp = heartbeat if isinstance(heartbeat, (int, float)) and not isinstance(heartbeat, bool) else 0
     stale = now - min(stamp, stat.st_mtime) > ESCALATION_STALE_SECONDS or stamp > now + 5
-    keep = ("generated_at", "heartbeat_at", "source", "ledger_error", "thresholds", "alerts", "worker_diagnostic", "models", "ok", "tasks", "coverage", "coverage_complete", "coverage_reason", "ledger_stale", "unknown_task_ids")
+    keep = ("generated_at", "heartbeat_at", "source", "ledger_error", "thresholds", "alerts", "worker_diagnostic", "worker_lanes", "models", "ok", "tasks", "coverage", "coverage_complete", "coverage_reason", "ledger_stale", "unknown_task_ids")
     out = {key: value.get(key) for key in keep}
     out["available"] = True
     out["stale"] = stale
@@ -104,6 +105,7 @@ def payload() -> dict:
     diagnosis = worker_supervisor.diagnose(
         service=service_model, state=worker.get("state"), tasks=tasks,
     )
+    workers = worker_lanes.lane_reports()
     return {
         "ok": True,
         "source": "configured-local-snapshot" if tasks is not None else "unavailable",
@@ -115,7 +117,8 @@ def payload() -> dict:
         # These are deliberately different signals: ledger queue depth is not
         # a count of processes. systemd owns the latter for this one worker.
         "queue_depth": queue_depth,
-        "active_worker_count": 1 if diagnosis["process"]["present"] else 0,
+        "active_worker_count": sum(1 for lane in workers if lane.get("healthy")),
+        "workers": workers,
         "diagnostic": diagnosis,
         "supervisor": _supervisor(),
         "escalation": _escalation(),

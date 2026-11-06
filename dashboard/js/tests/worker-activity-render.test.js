@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   renderWorkerActivity,
+  renderWorkerLanes,
   renderWorkerTerminal,
   renderWorkerTerminalContent,
   workerTabClass,
@@ -187,5 +188,77 @@ describe("Worker Activity rendering", () => {
       expect(content).not.toContain("</section>");
     }
     expect(renderWorkerTerminalContent(withEvents)).toContain("ran tool");
+  });
+});
+
+describe("Worker lanes", () => {
+  const lane = (name, extra) => ({
+    lane: name,
+    description: `${name} lane`,
+    installed: true,
+    healthy: true,
+    status: "healthy",
+    ...extra,
+  });
+
+  test("lists both workers and flags a crashed one by name", () => {
+    const html = renderWorkerLanes({
+      workers: [
+        lane("general"),
+        lane("express", {
+          healthy: false,
+          status: "offline",
+          reason: "systemd did not report a worker PID",
+        }),
+      ],
+    });
+    expect(html).toContain('data-worker-lane="general"');
+    expect(html).toContain('data-worker-lane="express"');
+    expect(html).toContain("DOWN — offline");
+    expect(html).toContain("systemd did not report a worker PID");
+  });
+
+  test("an uninstalled lane is described, not flagged", () => {
+    const html = renderWorkerLanes({
+      workers: [
+        lane("general"),
+        lane("express", { installed: false, healthy: null }),
+      ],
+    });
+    expect(html).toContain("not installed");
+    expect(html).not.toContain("DOWN");
+  });
+
+  test("the tab turns to a concern when an installed lane is down, and stays up otherwise", () => {
+    const base = { ok: true, tasks_available: true };
+    expect(
+      workerTabClass({ ...base, workers: [lane("general"), lane("express")] }),
+    ).toBe("server-up");
+    expect(
+      workerTabClass({
+        ...base,
+        workers: [lane("general"), lane("express", { healthy: false })],
+      }),
+    ).toBe("server-concern");
+    expect(
+      workerTabClass({
+        ...base,
+        workers: [
+          lane("general"),
+          lane("express", { installed: false, healthy: null }),
+        ],
+      }),
+    ).toBe("server-up");
+  });
+
+  test("a supervisor action is shown", () => {
+    const html = renderWorkerLanes({
+      workers: [
+        lane("general", {
+          supervisor: { status: "healthy", action: "restarted" },
+        }),
+      ],
+    });
+    expect(html).toContain("supervisor: healthy (restarted)");
   });
 });

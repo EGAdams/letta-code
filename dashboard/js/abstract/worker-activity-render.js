@@ -65,6 +65,31 @@ export function renderWorkerProviderSelection(payload) {
   return `<section class="worker-provider-selection" aria-labelledby="worker-provider-selection-title"><h3 id="worker-provider-selection-title">Bridge worker provider</h3><div class="worker-provider-options">${options || '<span class="am-dim">No providers reported.</span>'}</div><p class="am-dim">${note}</p></section>`;
 }
 
+/**
+ * One line per worker lane (general / express): its own process, heartbeat and
+ * supervisor verdict. An installed lane that is down is flagged whichever lane
+ * it is; a lane that was never installed is said to be that, not hidden.
+ */
+export function renderWorkerLanes(payload) {
+  const lanes = Array.isArray(payload?.workers) ? payload.workers : [];
+  if (!lanes.length) return "";
+  const rows = lanes
+    .map((lane) => {
+      const down = lane.installed && !lane.healthy;
+      const verdict = lane.supervisor
+        ? ` · supervisor: ${esc(lane.supervisor.status || "unknown")}${lane.supervisor.action && lane.supervisor.action !== "none" ? ` (${esc(lane.supervisor.action)})` : ""}`
+        : "";
+      const state = !lane.installed
+        ? "not installed"
+        : lane.healthy
+          ? "running"
+          : `DOWN — ${lane.status || "unknown"}`;
+      return `<li data-worker-lane="${esc(lane.lane)}" class="${down ? "am-warn" : ""}"><strong>${esc(lane.lane)}</strong>: ${esc(state)} <span class="am-dim">— ${esc(lane.description || "")}${verdict}</span>${down ? ` <span>${esc(lane.reason || "")}</span>` : ""}</li>`;
+    })
+    .join("");
+  return `<ul class="worker-lanes" aria-label="Bridge worker lanes">${rows}</ul>`;
+}
+
 /** The bridge worker's own heartbeat (systemd + state file). Changes often. */
 export function renderWorkerHealth(payload) {
   if (!payload) return '<p class="am-dim">Checking&hellip;</p>';
@@ -88,7 +113,7 @@ export function renderWorkerHealth(payload) {
     ? diagnostic.reasons.join("; ")
     : "No diagnostic details reported.";
   const attempts = diagnostic.queue?.attempts ?? "unavailable";
-  return `<p class="worker-activity-health"><strong>Bridge worker:</strong> ${esc(diagnostic.status || worker.status || "unknown")} — ${esc(diagnostic.action || worker.reason || "No reason reported.")} <span class="am-dim">(service: ${esc(service.active || "unknown")})</span></p><p class="worker-activity-diagnostic"><strong>Evidence:</strong> ${esc(reasons)}</p><p class="worker-activity-counts"><strong>Queue depth:</strong> ${esc(queue)} · <strong>Attempts:</strong> ${esc(attempts)} · <strong>Actual worker process:</strong> ${esc(active)} <span class="am-dim">(local process inspection)</span></p><p class="worker-activity-restart">${action}</p>`;
+  return `<p class="worker-activity-health"><strong>Bridge worker:</strong> ${esc(diagnostic.status || worker.status || "unknown")} — ${esc(diagnostic.action || worker.reason || "No reason reported.")} <span class="am-dim">(service: ${esc(service.active || "unknown")})</span></p><p class="worker-activity-diagnostic"><strong>Evidence:</strong> ${esc(reasons)}</p><p class="worker-activity-counts"><strong>Queue depth:</strong> ${esc(queue)} · <strong>Attempts:</strong> ${esc(attempts)} · <strong>Actual worker process:</strong> ${esc(active)} <span class="am-dim">(local process inspection)</span></p>${renderWorkerLanes(payload)}<p class="worker-activity-restart">${action}</p>`;
 }
 
 /**
@@ -217,5 +242,7 @@ export function renderWorkerActivity(payload, options) {
 export function workerTabClass(payload) {
   if (!payload || payload.ok === false) return "poll-disabled";
   if (!payload.tasks_available) return "server-concern";
+  if ((payload.workers || []).some((lane) => lane.installed && !lane.healthy))
+    return "server-concern";
   return "server-up";
 }
