@@ -1,0 +1,33 @@
+"""What PauseControlService depends on. Concretes are named only in composition.py."""
+
+from __future__ import annotations
+
+from typing import Optional, Protocol
+
+from pause_control.models import ControlAction, ControlRecord
+
+
+class IControlLedger(Protocol):
+    def create(self, record: ControlRecord, created_ns: int,
+               idempotency: Optional[tuple[str, str]]) -> tuple[ControlRecord, bool]: ...
+    def transition(self, request_id: str, status: str, **changes: object) -> ControlRecord: ...
+    def get(self, request_id: str) -> Optional[ControlRecord]: ...
+    def open_for_task(self, task_id: str, action: ControlAction) -> Optional[ControlRecord]: ...
+    def list_for_task(self, task_id: str) -> list[ControlRecord]: ...
+    def list_recent(self, limit: int) -> list[ControlRecord]: ...
+    def audit(self, request_id: Optional[str], actor: str, event: str, detail: str = '') -> None: ...
+
+
+class ITaskPausability(Protocol):
+    """True/False only for a task this workspace has been explicitly told
+    about; otherwise None. None must be treated as "unknown", never "safe"."""
+
+    def can_pause(self, task_id: str) -> Optional[bool]: ...
+
+
+class IControlAuthorizer(Protocol):
+    def configured(self) -> bool: ...
+    def authorize(self, authorization_header: Optional[str]) -> bool: ...
+
+
+__all__ = ['IControlAuthorizer', 'IControlLedger', 'ITaskPausability']
