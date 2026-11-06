@@ -126,3 +126,16 @@ def test_copying_old_state_does_not_refresh_supervisor_heartbeat(tmp_path, monke
     monkeypatch.setenv("ADW_SUPERVISOR_STATE_PATH", str(path))
     monkeypatch.setattr(worker_activity.time, "time", lambda: 2000)
     assert worker_activity._escalation()["stale"] is True
+
+
+def test_queue_depth_counts_a_task_waiting_only_at_the_gateway(tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_activity, "DEFAULT_SNAPSHOT", tmp_path / "missing.json")
+    monkeypatch.delenv("WORKER_ACTIVITY_SNAPSHOT", raising=False)
+    monkeypatch.setattr(agent_bridge_poll, "agent_bridge_poll_payload", lambda *_lane: {
+        "polling": "active", "reason": "polling", "service": agent_bridge_poll.ServiceState().model_dump(mode="json"),
+        "state": None, "now": 1.0})
+    monkeypatch.setattr(worker_activity, "_escalation", lambda: {"available": True, "stale": False, "queued_count": 1})
+    monkeypatch.setattr(worker_activity, "_snapshot", lambda: ([], None, 1.0, False))
+    assert worker_activity.payload()["queue_depth"] == 1
+    monkeypatch.setattr(worker_activity, "_escalation", lambda: {"available": True, "stale": True, "queued_count": 5})
+    assert worker_activity.payload()["queue_depth"] == 0, "a stale supervisor never raises the count"

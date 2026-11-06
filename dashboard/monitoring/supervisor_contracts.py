@@ -46,6 +46,7 @@ class PublishedSupervisorState(BaseModel):
     alerts: list[dict] = Field(default_factory=list)
     tasks: dict[str, dict] = Field(default_factory=dict)
     worker_diagnostic: dict | None = None
+    queued_count: int | None = None
     worker_lanes: list[dict] | None = None      # each installed worker lane's own health, from the independent supervisor
     models: list[dict] = Field(default_factory=list)
     coverage: str | None = None

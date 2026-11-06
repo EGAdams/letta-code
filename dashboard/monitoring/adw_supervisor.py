@@ -131,6 +131,9 @@ def run_cycle(
         "unknown_task_ids": unknown,
         "worker_diagnostic": _worker_diagnostic(tasks if not observation.stale else None, now),
         "worker_lanes": _worker_lanes(now),
+        # Waiting tasks as this supervisor saw them: the local ledger plus the gateway's queue head, so a task
+        # queued only at the gateway is counted. A lower bound (the gateway shows only the head).
+        "queued_count": sum(1 for task in (tasks or []) if task.get("status") in {"queued", "pending"}),
         "models": models,
     }
     _atomic_write(state_path, snapshot)

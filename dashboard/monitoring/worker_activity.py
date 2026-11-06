@@ -69,7 +69,7 @@ def _escalation() -> dict:
     # A fresh file copy must not make an old supervisor heartbeat fresh.
     stamp = heartbeat if isinstance(heartbeat, (int, float)) and not isinstance(heartbeat, bool) else 0
     stale = now - min(stamp, stat.st_mtime) > ESCALATION_STALE_SECONDS or stamp > now + 5
-    keep = ("generated_at", "heartbeat_at", "source", "ledger_error", "thresholds", "alerts", "worker_diagnostic", "worker_lanes", "models", "ok", "tasks", "coverage", "coverage_complete", "coverage_reason", "ledger_stale", "unknown_task_ids")
+    keep = ("generated_at", "heartbeat_at", "source", "ledger_error", "thresholds", "alerts", "worker_diagnostic", "worker_lanes", "queued_count", "models", "ok", "tasks", "coverage", "coverage_complete", "coverage_reason", "ledger_stale", "unknown_task_ids")
     out = {key: value.get(key) for key in keep}
     out["available"] = True
     out["stale"] = stale
@@ -106,6 +106,10 @@ def payload() -> dict:
         service=service_model, state=worker.get("state"), tasks=tasks,
     )
     workers = worker_lanes.lane_reports()
+    escalation = _escalation()
+    seen = escalation.get("queued_count") if escalation.get("available") and not escalation.get("stale") else None
+    if isinstance(seen, int) and not isinstance(seen, bool):
+        queue_depth = max(queue_depth or 0, seen)   # never below what the local ledger shows
     return {
         "ok": True,
         "source": "configured-local-snapshot" if tasks is not None else "unavailable",
@@ -121,7 +125,7 @@ def payload() -> dict:
         "workers": workers,
         "diagnostic": diagnosis,
         "supervisor": _supervisor(),
-        "escalation": _escalation(),
+        "escalation": escalation,
         "provider_selection": model_registry.provider_selection_payload(),
         "worker": {
             "name": "agent-bridge-worker",
