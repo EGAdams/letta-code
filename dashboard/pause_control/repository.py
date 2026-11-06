@@ -113,10 +113,14 @@ class SqliteControlLedger:
                     if hit:
                         conn.execute('COMMIT')
                         return self._load(hit), False
+                # An open pause is the same request until a resume is asked for after it: that resume supersedes
+                # it, so a pause after the resume is a fresh cycle, not a replay of the first.
                 existing = conn.execute(
-                    "SELECT record_json FROM control_requests WHERE task_id = ? AND action = ? "
-                    "AND status = ? ORDER BY created_ns DESC LIMIT 1",
-                    (record.task_id, record.action, OPEN_STATUSES[record.action])).fetchone()
+                    "SELECT record_json FROM control_requests c WHERE task_id = ? AND action = ? "
+                    "AND status = ? AND NOT (? = 'pause' AND EXISTS (SELECT 1 FROM control_requests r "
+                    "WHERE r.task_id = c.task_id AND r.action = 'resume' AND r.rowid > c.rowid)) "
+                    "ORDER BY created_ns DESC LIMIT 1",
+                    (record.task_id, record.action, OPEN_STATUSES[record.action], record.action)).fetchone()
                 if existing:
                     conn.execute('COMMIT')
                     return self._load(existing), False

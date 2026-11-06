@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 from contracts import StrictModel
 from pause_control import composition
+from pause_control.models import TERMINAL_STATUSES
 from pause_control.repository import ControlRequestNotFound, InvalidTransition
 from pause_control.service import ControlRefused
 
