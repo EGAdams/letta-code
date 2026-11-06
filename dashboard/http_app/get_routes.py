@@ -22,6 +22,7 @@ import statement_review
 import receptionist_alerts
 import toyota_service
 from voice import note_repository
+import notes_bridge
 from receptionist_work import http_api as receptionist_work_api
 from scan_jobs import http_routes as scan_bridge_routes
 from agents import conversation_management
@@ -66,6 +67,12 @@ class GetRoutesMixin:
 
         if path.startswith(scan_bridge_routes.PREFIX):
             return scan_bridge_routes.serve(self, 'GET')
+        if path.startswith(notes_bridge.PREFIX):
+            status, body = notes_bridge.dispatch(
+                'GET', self.path,
+                {name.lower(): value for name, value in self.headers.items()},
+                str(self.client_address[0]))
+            return self._write(body, 'application/json', status)
         if path == '/api/receptionist-alerts':
             return self.json_response(receptionist_alerts.collect())
         if path == '/api/receptionist-work':
@@ -96,14 +103,43 @@ class GetRoutesMixin:
         if path == '/api/agents':
             return self.json_response(srv.build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
+        if path == '/api/dashboard-config':
+            from voice import config as voice_config
+            return self.json_response({
+                'mailing_address': voice_config.MAILING_ADDRESS,
+                'mailing_city_state': voice_config.MAILING_CITY_STATE,
+                'street_address_required': not bool(voice_config.MAILING_ADDRESS),
+            })
+
         if path == '/api/notes':
             repository = note_repository.build_note_repository()
             filename = query.get('filename', [''])[0]
             try:
                 if filename:
+                    note = repository.read(filename)
                     return self.json_response({'ok': True, 'filename': filename,
-                                               'note': repository.read(filename)})
-                return self.json_response({'ok': True, 'notes': repository.list()})
+                                               'note': note,
+                                               'revision': repository.revision(filename)})
+                if query.get('diagnostic', ['0'])[0] == '1':
+                    return self.json_response({
+                        'ok': True,
+                        'notes_dir': str(repository.directory),
+                        'notes': repository.list(),
+                        'instruction': 'Open a candidate by filename before editing it; no file is selected automatically.',
+                    })
+                names = repository.list()
+                # Same cheap sha256 the single-note read already returns, bundled
+                # per filename so the browser's unread-row detection (notes.js)
+                # never needs an extra round trip per note. A note that loses a
+                # race with a concurrent delete is just omitted here rather than
+                # failing the whole listing.
+                revisions = {}
+                for name in names:
+                    try:
+                        revisions[name] = repository.revision(name)
+                    except (OSError, ValueError):
+                        continue
+                return self.json_response({'ok': True, 'notes': names, 'revisions': revisions})
             except (OSError, ValueError):
                 return self.error_response('Note not found', 404)
 

@@ -6,8 +6,8 @@
 
 set -e
 
-MARKER="${1:?Usage: ./verify-live.sh <marker-string>}"
-LIVE_URL="http://100.80.49.10:8765/dashboard.html"
+MARKER="${1:?Usage: ./verify-live.sh <marker-string> [url]}"
+LIVE_URL="${2:-${VERIFY_LIVE_URL:-http://${VERIFY_LIVE_HOST:-100.102.209.100}:${VERIFY_LIVE_PORT:-8765}/${VERIFY_LIVE_PATH:-dashboard.html}}}"
 
 echo "🔍 Verifying live dashboard contains: $MARKER"
 

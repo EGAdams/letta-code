@@ -70,6 +70,18 @@ export function createViewNavigator({ doc = document, nav }) {
     statementReviewDialog?.syncVisibility?.();
   }
 
+  // A full page load always starts at Toyota's receptionist desk. This is
+  // the startup boundary that clears stale DOM state from cached markup or a
+  // previous route; returnToHome() remains ordinary user navigation.
+  function resetForPageLoad() {
+    nav.main?.classList.remove("hidden");
+    doc.querySelectorAll('nav[id^="nav-"]').forEach((subNav) => {
+      if (subNav !== nav.main) subNav.classList.add("hidden");
+    });
+    clearActive(nav.main, '[data-nav="main"][data-target]');
+    activateView("home");
+  }
+
   function setActive(navEl, selector, target) {
     if (!navEl || !target) return;
     clearActive(navEl, selector);
@@ -89,14 +101,12 @@ export function createViewNavigator({ doc = document, nav }) {
     activateView("status-home");
   }
 
-  // Back out of a sub-nav to the top-level main nav, landing on Home.
+  // Back out of a sub-nav to the top-level main nav, landing on the
+  // receptionist view. The receptionist has no main-nav tab of its own.
   function returnToHome(subNavEl) {
     subNavEl?.classList.add("hidden");
     nav.main.classList.remove("hidden");
-    const homeTab = nav.main.querySelector(
-      '[data-nav="main"][data-target="home"]',
-    );
-    if (homeTab) setActive(nav.main, '[data-nav="main"][data-target]', homeTab);
+    clearActive(nav.main, '[data-nav="main"][data-target]');
     activateView("home");
   }
 
@@ -154,6 +164,7 @@ export function createViewNavigator({ doc = document, nav }) {
   return {
     clearActive,
     activateView,
+    resetForPageLoad,
     setActive,
     returnToStatus,
     returnToHome,

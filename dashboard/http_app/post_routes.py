@@ -45,6 +45,7 @@ from letta_code import streaming as conversation_streaming
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from monitoring import agent_bridge_poll_edit
+from monitoring import worker_restart
 from monitoring import printer_panel
 from monitoring import ssh_checks
 from pydantic import ValidationError
@@ -54,6 +55,7 @@ from voice import (config, latency_log, note_factory, note_repository,
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
+import notes_bridge
 from . import voice_admission
 from .registry import current_ports
 
@@ -90,6 +92,12 @@ class PostRoutesMixin:
 
         if path.startswith(scan_bridge_routes.PREFIX):
             return scan_bridge_routes.serve(self, 'POST', raw)
+        if path.startswith(notes_bridge.PREFIX):
+            status, response = notes_bridge.dispatch(
+                'POST', self.path,
+                {name.lower(): value for name, value in self.headers.items()},
+                str(self.client_address[0]), raw)
+            return self._write(response, 'application/json', status)
 
         # /api/voice carries a binary audio blob — handle before decoding as text.
         if path == '/api/voice':
@@ -207,6 +215,11 @@ class PostRoutesMixin:
             if not isinstance(data, dict):
                 return self.error_response('Expected a JSON object', 400)
             return self.json_response(agent_bridge_poll_edit.save_poll_settings(data))
+
+        if path == '/api/worker-activity/restart':
+            if body.strip() not in ('', '{}'):
+                return self.error_response('Restart accepts no body', 400)
+            return self.json_response(worker_restart.restart(self.headers.get('Authorization')))
 
         if path in ('/api/printer/test-print', '/api/printer/cancel'):
             # Shape only here; adws/adw_printer.py owns every printing rule.
@@ -607,7 +620,8 @@ class PostRoutesMixin:
                 saved = note_repository.build_note_repository().save(note, filename)
             except OSError as exc:
                 return self.json_response({'ok': False, 'error': f'Could not save the note: {exc}'})
-            return self.json_response({'ok': True, 'filename': saved.filename, 'path': saved.path})
+            return self.json_response({'ok': True, 'filename': saved.filename, 'path': saved.path,
+                                       'revision': note_repository.build_note_repository().revision(saved.filename)})
 
         if path == '/api/note-write':
             try:
@@ -616,19 +630,23 @@ class PostRoutesMixin:
                 return self.error_response('Invalid JSON', 400)
             filename = data.get('filename', '')
             note = data.get('note', '')
+            expected_revision = data.get('expected_revision', '')
             if not isinstance(filename, str) or not isinstance(note, str):
                 return self.error_response('filename and note must be strings', 400)
             if not filename.strip():
                 return self.error_response('filename is required', 400)
             try:
-                note_repository.build_note_repository().write(filename, note)
+                revision = note_repository.build_note_repository().write(
+                    filename, note, expected_revision)
+            except FileExistsError:
+                return self.error_response('Note changed elsewhere; reload before saving', 409)
             except (FileNotFoundError, ValueError):
                 return self.error_response('Note not found', 404)
             except OSError as exc:
                 # A real disk failure (permissions, full disk) is not "not found":
                 # say what happened so the Notes page can show it.
                 return self.error_response(f'Could not save the note: {exc.strerror or exc}', 500)
-            return self.json_response({'ok': True, 'filename': filename})
+            return self.json_response({'ok': True, 'filename': filename, 'revision': revision})
 
         if path == '/api/agent-model':
             try:

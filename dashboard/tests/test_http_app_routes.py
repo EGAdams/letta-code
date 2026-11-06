@@ -13,6 +13,7 @@ import pytest
 import server
 from http_app import post_routes
 from letta_code import streaming as conversation_streaming
+from monitoring import worker_activity
 from voice import config as voice_config
 from tests.http_app_harness import (
     DashboardClient,
@@ -78,6 +79,34 @@ class TestResponseEnvelope:
     def test_unicode_is_not_mangled_in_transit(self, live, svc, stub):
         stub('get_code_status', lambda: {'note': 'Rosemary ≥ 46 — ⚠ ok'})
         assert live.get('/api/code-status').json['note'] == 'Rosemary ≥ 46 — ⚠ ok'
+
+
+class TestWorkerActivityContract:
+    """`/api/worker-activity` just relays `monitoring.worker_activity.payload()`."""
+
+    def test_the_route_returns_the_payload_verbatim(self, live, svc, monkeypatch):
+        stubbed_payload = {
+            'ok': True, 'source': 'unavailable', 'tasks': [], 'tasks_available': False,
+            'tasks_error': 'The default worker task ledger is not present.',
+            'snapshot_updated_at': None, 'snapshot_stale': False, 'queue_depth': None,
+            'active_worker_count': 0, 'diagnostic': {'process': {'present': False}},
+            'supervisor': None, 'escalation': {'available': False, 'reason': 'stub'},
+            'provider_selection': {}, 'worker': {'name': 'agent-bridge-worker'},
+            'restart': {'configured': False, 'service': 'agent-bridge-worker.service'},
+        }
+        monkeypatch.setattr(worker_activity, 'payload', lambda: stubbed_payload)
+        resp = live.get('/api/worker-activity')
+        assert resp.status == 200
+        assert resp.headers['Content-Type'] == 'application/json'
+        assert resp.json == stubbed_payload
+
+    def test_a_route_failure_does_not_crash_the_server(self, live, svc, monkeypatch):
+        def boom():
+            raise RuntimeError('worker_activity.payload exploded')
+        monkeypatch.setattr(worker_activity, 'payload', boom)
+        with pytest.raises(Exception):
+            live.get('/api/worker-activity')
+        assert live.get('/api/pc-monitors').status == 200
 
 
 class TestVoiceMediaContract:
@@ -438,6 +467,97 @@ class TestNoteWrite:
         monkeypatch.setattr(builtins, 'open', real_open)
         assert resp.status == 500
         assert 'Permission denied' in resp.json['error']
+
+
+class TestNotesDiagnostic:
+    def test_diagnostic_reports_directory_and_address_candidates_without_writing(
+        self, live, svc, tmp_path, monkeypatch
+    ):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        (tmp_path / '2026-11-03_deed.md').write_text('Mailing address: Grand Rapids, MI\n')
+        (tmp_path / '2026-11-02_other.md').write_text('unrelated\n')
+
+        resp = live.get('/api/notes?diagnostic=1')
+
+        assert resp.status == 200
+        assert resp.json['notes_dir'] == str(tmp_path)
+        assert resp.json['notes'] == ['2026-11-03_deed.md', '2026-11-02_other.md']
+        assert (tmp_path / '2026-11-03_deed.md').read_text().startswith('Mailing address')
+
+
+class TestNotesListRevisions:
+    """The bare listing (no filename, no diagnostic) carries a per-filename
+    revision map alongside the names, so the browser's unread-row detection
+    (notes.js) can tell a new/changed note from an unopened-but-unchanged one
+    without a GET per note. Additive: 'notes' keeps its existing shape."""
+
+    def test_bare_listing_carries_a_revision_per_note(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        (tmp_path / '2026-11-03_deed.md').write_text('v1\n')
+
+        resp = live.get('/api/notes')
+
+        assert resp.status == 200
+        assert resp.json['notes'] == ['2026-11-03_deed.md']
+        assert set(resp.json['revisions']) == {'2026-11-03_deed.md'}
+
+        (tmp_path / '2026-11-03_deed.md').write_text('v2\n')
+        resp2 = live.get('/api/notes')
+        assert resp2.json['revisions']['2026-11-03_deed.md'] != resp.json['revisions']['2026-11-03_deed.md']
+
+    def test_a_note_deleted_between_list_and_revision_is_omitted_not_fatal(
+        self, live, svc, tmp_path, monkeypatch
+    ):
+        import voice.config as voice_config
+        from voice import note_repository
+
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        (tmp_path / '2026-11-03_deed.md').write_text('v1\n')
+        real_revision = note_repository.FilesystemNoteRepository.revision
+
+        def flaky_revision(self, filename):
+            if filename == '2026-11-03_deed.md':
+                raise FileNotFoundError(filename)
+            return real_revision(self, filename)
+
+        monkeypatch.setattr(note_repository.FilesystemNoteRepository, 'revision', flaky_revision)
+
+        resp = live.get('/api/notes')
+
+        assert resp.status == 200
+        assert resp.json['notes'] == ['2026-11-03_deed.md']
+        assert resp.json['revisions'] == {}
+
+
+class TestDashboardConfig:
+    def test_address_is_city_only_until_a_trusted_street_is_configured(self, live, svc, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'MAILING_ADDRESS', '')
+        monkeypatch.setattr(voice_config, 'MAILING_CITY_STATE', 'Grand Rapids, MI')
+        resp = live.get('/api/dashboard-config')
+        assert resp.json == {
+            'mailing_address': '',
+            'mailing_city_state': 'Grand Rapids, MI',
+            'street_address_required': True,
+        }
+
+    def test_stale_florida_environment_values_fail_closed_to_grand_rapids_city_only(
+        self, live, svc, monkeypatch
+    ):
+        import voice.config as voice_config
+        city_state, address = voice_config.resolve_mailing_location(
+            'St. Petersburg, FL', '1 Florida St, St. Petersburg, FL 33701'
+        )
+        monkeypatch.setattr(voice_config, 'MAILING_ADDRESS', address)
+        monkeypatch.setattr(voice_config, 'MAILING_CITY_STATE', city_state)
+
+        resp = live.get('/api/dashboard-config')
+
+        assert resp.json['mailing_address'] == ''
+        assert resp.json['mailing_city_state'] == 'Grand Rapids, MI'
+        assert resp.json['street_address_required'] is True
 
 
 # ==========================================================================

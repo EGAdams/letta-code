@@ -43,7 +43,7 @@ GET_ROUTES = [
     '/api/notes',
     '/api/vendor-keys', '/api/voice-media-backend', '/api/wsl-interop',
     '/api/agent-bridge-poll',
-    '/api/printer',
+    '/api/printer', '/api/worker-activity',
     '/report-source-document',
     '/api/scan-bridge/v1/scans', '/api/scan-bridge/v1/scans/scan_01ARZ3NDEKTSV4RRFFQ69G5FAV',
 ]

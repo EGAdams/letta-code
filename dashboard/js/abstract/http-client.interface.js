@@ -39,14 +39,14 @@ export class HttpClient {
    * POST a JSON body + parse JSON, applying the shared error policy.
    * @param {string} url
    * @param {any} body
-   * @param {{timeout?:number}} [opts] e.g. `{timeout: 360000}` for endpoints
+   * @param {{timeout?:number, headers?:object}} [opts] e.g. `{timeout: 360000}` for endpoints
    *   whose server-side budget is far longer than the client default.
    */
   async postJSON(url, body, opts = {}) {
     const res = await this.request(url, {
       ...opts,
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
       body: JSON.stringify(body),
     });
     return this._unwrap(res);

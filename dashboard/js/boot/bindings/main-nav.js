@@ -81,6 +81,7 @@ export function bindMainNav({
     tab.addEventListener("click", () => {
       const target = tab.dataset.target;
       if (!target) return;
+      WKR?.stop?.();
 
       if (target === "status") {
         nav.main.classList.add("hidden");
@@ -146,6 +147,8 @@ export function bindMainNav({
     .forEach((tab) => {
       tab.addEventListener("click", () => {
         const target = tab.dataset.target;
+        if (target !== "worker-activity" && target !== "poll-settings")
+          WKR?.stop?.();
         viewNav.setActive(nav.status, '[data-nav="status"][data-target]', tab);
 
         if (target === "server-management") {
@@ -201,7 +204,10 @@ export function bindMainNav({
     });
 
   const backStatus = doc.getElementById("btn-back");
-  backStatus?.addEventListener("click", () => viewNav.returnToHome(nav.status));
+  backStatus?.addEventListener("click", () => {
+    WKR?.stop?.();
+    viewNav.returnToHome(nav.status);
+  });
 
   const backAgentBlocks = doc.getElementById("btn-back-agent-blocks");
   backAgentBlocks?.addEventListener("click", () =>

@@ -118,6 +118,20 @@ export class FakeElement {
     for (const k of kids) k.parent = this;
   }
 
+  // Plain attributes, as a real element has them (e.g. aria-busy on a button).
+  setAttribute(name, value) {
+    if (!this._attributes) this._attributes = {};
+    this._attributes[name] = String(value);
+  }
+  getAttribute(name) {
+    return this._attributes && name in this._attributes
+      ? this._attributes[name]
+      : null;
+  }
+  removeAttribute(name) {
+    if (this._attributes) delete this._attributes[name];
+  }
+
   addEventListener(type, fn) {
     if (!this._listeners[type]) this._listeners[type] = [];
     this._listeners[type].push(fn);

@@ -19,6 +19,48 @@ PLAN_MODULES_DIR = DASHBOARD_DIR / "js" / "plans"
 BOOT_DIR = DASHBOARD_DIR / "js" / "boot"
 
 
+def test_dashboard_opens_on_receptionist_and_keeps_notes_as_a_navigation_tab():
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+
+    assert 'class="tab" data-nav="main" data-target="notes">NOTES' in dashboard
+    assert '<section id="home" class="view active">' in dashboard
+    assert '<section id="notes" class="view">' in dashboard
+    assert "viewNav.resetForPageLoad();" in (
+        DASHBOARD_DIR.joinpath("js", "dashboard-boot.js").read_text(encoding="utf-8")
+    )
+    assert 'id="probate-property-address"' in dashboard
+    assert 'id="probate-property-address-input"' in dashboard
+    assert 'placeholder="Enter the verified street address"' in dashboard
+    assert "511 Prince Street" not in dashboard
+
+
+def test_notes_outer_ui_wears_the_same_win98_skin_as_the_rest_of_the_dashboard():
+    """Front-page Win98 skin is a CSS/markup wrapper only: the existing
+
+    notes-landing mount point and the <details>/<summary> category accordion
+    from js/boot/notes.js stay exactly as-is underneath it, so nothing here
+    duplicates notes, categories, or the accordion widget.
+    """
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+    css = (DASHBOARD_DIR / "css" / "dashboard.css").read_text(encoding="utf-8")
+
+    assert '<div class="notes-win98">' in dashboard
+    assert '<h2 class="notes-win98-titlebar">NOTES</h2>' in dashboard
+    assert dashboard.count('id="notes-landing"') == 1
+    assert dashboard.count('id="notes-editor"') == 1
+    assert 'id="notes-editor-save"' in dashboard
+    assert 'id="notes-editor-refresh"' in dashboard
+    assert 'id="notes-editor-back"' in dashboard
+
+    # The skin is scoped under .notes-win98 and reuses the same navy
+    # titlebar / silver bevel tokens as .claude-sdk-installer /
+    # .codex-watchdog-panel / .win98-agents elsewhere in the dashboard.
+    assert ".notes-win98 {" in css
+    assert "background: #000080;" in css.split(".notes-win98-titlebar")[1][:200]
+    assert ".notes-win98 .notes-category summary" in css
+    assert ".notes-win98 .am-btn" in css
+
+
 def _boot_source() -> str:
     """Every boot module's text, concatenated."""
     return "\n".join(

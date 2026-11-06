@@ -583,6 +583,80 @@ body.startup-loading .sidebar {
   margin-top: 16px;
 }
 
+/* Notes category accordion: plain <details>/<summary> (same disclosure
+   widget as .mtr-detail), so expand/collapse, keyboard toggling and the
+   expanded/collapsed state exposed to assistive tech all come from the
+   browser — no separate accordion widget. */
+.notes-category {
+  width: 100%;
+  max-width: 460px;
+  border: 1px solid var(--border, #bbb);
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: #fafafa;
+}
+.notes-category summary {
+  font-size: 0.95rem;
+}
+.notes-category-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 4px 6px;
+}
+
+/* Unread note rows only — not the category disclosure they sit inside, and
+   not any already-read or unrelated row. The "NEW" badge is a real sibling
+   element (not color alone, and not CSS-generated content, which screen
+   readers can't reliably announce), so the row is still identifiable with
+   color vision deficiency or with the pulse turned off below. */
+.notes-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Row height ~2x the default .am-btn (6px vertical padding): scoped to
+   .notes-row so the "New note" button and every other .am-btn elsewhere in
+   the dashboard (which also carries .notes-choice) keep their original
+   size — only note list rows, read or unread, grow. */
+.notes-row .am-btn {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.notes-unread-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #6b5200;
+  background: #ffe066;
+  border: 1px solid #c9a400;
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.notes-unread-badge.hidden {
+  display: none;
+}
+.notes-row-unread .notes-choice {
+  background: #fff3b0;
+  border-color: #c9a400;
+  animation: notes-unread-pulse 2.2s ease-in-out infinite;
+}
+/* Calm opacity/background pulse, not a hard on/off strobe — same vocabulary
+   as pulse-yellow (.srv-status.starting) elsewhere in this dashboard, just
+   scoped to one row instead of a status LED. */
+@keyframes notes-unread-pulse {
+  0%, 100% { background: #fff3b0; }
+  50% { background: #ffe066; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notes-row-unread .notes-choice {
+    animation: none;
+    background: #ffe066;
+  }
+}
+
 .notes-editor textarea,
 #notes-editor-text {
   display: block;
@@ -592,6 +666,38 @@ body.startup-loading .sidebar {
   font: inherit;
   resize: vertical;
 }
+
+.notes-editor-grid { display: flex; flex-direction: column; gap: 18px; max-width: 1200px; }
+.notes-editor-grid label, .notes-editor-grid h4 { display: block; margin: 8px 0 4px; }
+.notes-preview { min-height: 320px; padding: 12px; border: 1px solid var(--border, #bbb); background: #fff; overflow: auto; }
+.notes-preview p { margin: 0 0 10px; }
+.notes-preview pre, .notes-preview code { background: #f1f1f1; padding: 2px 4px; white-space: pre-wrap; }
+.notes-preview .notes-mermaid-source { color: #555; }
+
+/* `{{color:name}}`/`{{highlight:name}}` spans (notes_formatting.py) rendered
+   in the browser preview — square corners (no border-radius) on purpose, to
+   sit the same under the plain skin and the Win98 skin below rather than
+   needing a second, rounded variant for one of the two. Backgrounds/text
+   colors are plain CSS, not COLORS' hex from notes_formatting.py, since that
+   table targets Word's named highlight enum, not a browser palette. */
+.notes-preview mark[class^="notes-highlight-"] { border-radius: 0; padding: 0 1px; }
+.notes-preview .notes-highlight-red { background: #f8d7da; }
+.notes-preview .notes-highlight-orange { background: #fde3cf; }
+.notes-preview .notes-highlight-yellow { background: #fff59d; }
+.notes-preview .notes-highlight-green { background: #d2f5d6; }
+.notes-preview .notes-highlight-blue { background: #d2e6fb; }
+.notes-preview .notes-highlight-purple { background: #e6d6f5; }
+.notes-preview .notes-highlight-gray { background: #e0e0e0; }
+.notes-preview .notes-highlight-black { background: #000; color: #fff; }
+.notes-preview .notes-color-red { color: #C0392B; }
+.notes-preview .notes-color-orange { color: #D35400; }
+.notes-preview .notes-color-yellow { color: #B7950B; }
+.notes-preview .notes-color-green { color: #1E8449; }
+.notes-preview .notes-color-blue { color: #1F618D; }
+.notes-preview .notes-color-purple { color: #6C3483; }
+.notes-preview .notes-color-gray { color: #616A6B; }
+.notes-preview .notes-color-black { color: #000000; }
+.notes-monitor { margin-top: 14px; color: #555; font-size: .85rem; }
 
 .notes-editor-name {
   display: block;
@@ -608,6 +714,140 @@ body.startup-loading .sidebar {
 
 .notes-editor [role="status"] {
   margin-left: 10px;
+}
+
+/* ── Notes outer UI: Win98 desktop chrome ────────────────────────────────
+   Reuses the same navy-titlebar/silver-bevel vocabulary already used by
+   .claude-sdk-installer/.claude-sdk-titlebar (claude-sdk-activity.css),
+   .codex-watchdog-panel (codex-watchdog.css) and .win98-agents
+   (model-stats-agents.css) elsewhere in this dashboard: #c0c0c0 panels,
+   a 2px outset/inset border pair for raised vs. sunken surfaces, a #000080
+   titlebar, "MS Sans Serif"/Tahoma chrome type. Scoped entirely under
+   .notes-win98 so nothing outside the Notes section repaints, and applied
+   only as a skin over the existing markup/JS — the category accordion is
+   still the plain <details>/<summary> from notes.js (see .notes-category
+   above), just restyled here. */
+.notes-win98 {
+  margin-top: 16px;
+  max-width: 1240px;
+  background: #c0c0c0;
+  color: #000;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  font-family: "MS Sans Serif", Tahoma, sans-serif;
+  color-scheme: light;
+}
+.notes-win98-titlebar {
+  margin: 0;
+  padding: 6px 10px;
+  background: #000080;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.notes-win98-body {
+  padding: 12px 14px 16px;
+}
+.notes-win98-body > p,
+.notes-win98 .notes-monitor {
+  color: #202020;
+  font-size: 0.85rem;
+}
+.notes-win98 h3,
+.notes-win98 h4 {
+  margin: 10px 0 4px;
+  color: #000080;
+  font-size: 0.95rem;
+}
+
+/* Category bars: the existing <details>/<summary> accordion (notes-category,
+   defined above) restyled as Win98 raised panels with a navy summary bar —
+   same disclosure element, same keyboard/ARIA behavior, new paint only. */
+.notes-win98 .notes-category {
+  max-width: 620px;
+  padding: 0;
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  border-radius: 0;
+}
+.notes-win98 .notes-category summary {
+  padding: 5px 9px;
+  background: #000080;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.notes-win98 .notes-category-body {
+  margin: 0;
+  padding: 10px 12px;
+  background: #fff;
+  border-top: 2px solid #808080;
+}
+
+/* Panels: the preview pane and the markdown source box read as a sunken
+   (inset) Win98 surface, the inverse bevel of the raised category bars. */
+.notes-win98 .notes-preview,
+.notes-win98 textarea,
+.notes-win98 #notes-editor-text,
+.notes-win98 .notes-editor-name {
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  border-radius: 0;
+}
+
+/* Buttons: the same beveled push-button used by .win98-confirm-box/
+   .codex-watchdog-action, overriding the flat blue .am-btn only inside
+   this section. */
+.notes-win98 .am-btn {
+  background: #c0c0c0;
+  color: #000;
+  font: inherit;
+  font-weight: 400;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  border-radius: 0;
+  padding: 5px 14px;
+}
+/* Same row-height doubling as the plain skin above, scoped the same way:
+   only .notes-row buttons grow, not the Win98-skinned "New note" button. */
+.notes-win98 .notes-row .am-btn {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.notes-win98 .am-btn:hover {
+  background: #d4d4d4;
+}
+.notes-win98 .am-btn:active {
+  border-color: #808080 #fff #fff #808080;
+}
+
+/* Unread rows restyled for the Win98 skin: same beveled push-button, a
+   calm yellow pulse instead of the flat fill above, and a chiseled (not
+   rounded) badge to match the chrome. Still row-only, still off under
+   prefers-reduced-motion. */
+.notes-win98 .notes-unread-badge {
+  background: #ffe066;
+  border-radius: 0;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  color: #4b3900;
+}
+.notes-win98 .notes-row-unread .am-btn {
+  background: #fff3b0;
+  animation: notes-unread-pulse 2.2s ease-in-out infinite;
+}
+.notes-win98 .notes-row-unread .am-btn:hover {
+  background: #ffe066;
+}
+@media (prefers-reduced-motion: reduce) {
+  .notes-win98 .notes-row-unread .am-btn {
+    animation: none;
+    background: #ffe066;
+  }
 }
 
 /* Excel-style corner marker: this Agent Blocks tab opens another flat nav

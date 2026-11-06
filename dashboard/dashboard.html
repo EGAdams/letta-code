@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
   <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261103svg2" />
   <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
-  <link rel="stylesheet" href="/css/worker-activity.css?v=20261103svg" />
+  <link rel="stylesheet" href="/css/worker-activity.css?v=20261105fiverows" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -29,7 +29,8 @@
 
     <!-- Main nav -->
     <nav id="nav-main">
-      <button type="button" class="tab active" data-nav="main" data-target="notes">NOTES</button>
+      <button type="button" class="tab" data-nav="main" data-target="notes">NOTES</button>
+      <button type="button" class="tab" data-nav="main" data-target="all-monitors">All Monitors</button>
       <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
       <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
@@ -175,23 +176,58 @@
 
   <main class="content" id="main-content">
     <!-- Main views -->
-    <section id="home" class="view">
+    <section id="home" class="view active">
       <h2>Toyota</h2>
       <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
+      <p id="probate-property-address">
+        Mailing address: <span id="mailing-address-value">Grand Rapids, MI</span>
+        <label for="probate-property-address-input">Street address for deed preview</label>
+        <input id="probate-property-address-input" type="text" autocomplete="street-address"
+               placeholder="Enter the verified street address" aria-describedby="probate-property-address-help">
+        <span id="probate-property-address-help">A verified Grand Rapids street address is required before using it in a deed preview.</span>
+      </p>
       <div id="receptionist-box"></div>
     </section>
 
-    <section id="notes" class="view active">
-      <h2>NOTES</h2>
-      <p>Choose an existing note to open and edit, or start a new note.</p>
-      <div id="notes-landing" class="notes-landing"></div>
-      <div id="notes-editor" class="notes-editor hidden">
-        <h3 id="notes-editor-title"></h3>
-        <input type="text" id="notes-editor-name" class="notes-editor-name" placeholder="Name this note" aria-label="Note name">
-        <textarea id="notes-editor-text" rows="16" aria-label="Note contents"></textarea>
-        <button type="button" class="am-btn" id="notes-editor-save">Save Note</button>
-        <button type="button" class="am-btn" id="notes-editor-back">Back to Notes</button>
-        <span id="notes-editor-status" role="status" aria-live="polite"></span>
+    <section id="notes" class="view">
+      <!-- Same Win98 desktop chrome as .claude-sdk-installer / .codex-watchdog-panel /
+           .win98-agents elsewhere in this dashboard (navy titlebar, silver bevels) --
+           purely a CSS skin over the existing markup and the existing <details>/<summary>
+           accordion from notes.js; no new widget, no JS change. -->
+      <div class="notes-win98">
+        <h2 class="notes-win98-titlebar">NOTES</h2>
+        <div class="notes-win98-body">
+          <p>Choose an existing note to open and edit, or start a new note.</p>
+          <p id="notes-diagnostic" class="notes-monitor" aria-live="polite">
+            Notes are read from the dashboard host’s configured notes directory. Use Refresh Notes after another process edits a file.
+          </p>
+          <button type="button" class="am-btn voice-btn" id="notes-hands-free" aria-pressed="false">Start Voice Mode</button>
+          <button type="button" class="am-btn voice-btn" id="notes-toyota-on">Turn Toyota on</button>
+          <button type="button" class="am-btn voice-btn" id="notes-toyota-off">Turn Toyota off</button>
+          <span id="notes-hands-free-help" class="notes-monitor">Allow the microphone once, then say “Start taking notes”. Say “Okay, I'm done taking notes”, “Stop taking notes”, “I'm finished”, or “End recording” to stop and save. Voice commands are kept out of note text.</span>
+          <div id="notes-landing" class="notes-landing"></div>
+          <div id="notes-editor" class="notes-editor hidden">
+            <h3 id="notes-editor-title"></h3>
+            <input type="text" id="notes-editor-name" class="notes-editor-name" placeholder="Name this note" aria-label="Note name">
+            <div class="notes-editor-grid">
+              <div>
+                <h4>Preview</h4>
+                <div id="notes-editor-preview" class="notes-preview" aria-live="polite"></div>
+              </div>
+              <div>
+                <label for="notes-editor-text">Markdown source</label>
+                <textarea id="notes-editor-text" rows="16" aria-label="Note contents"></textarea>
+              </div>
+            </div>
+            <button type="button" class="am-btn" id="notes-editor-save">Save Note</button>
+            <button type="button" class="am-btn" id="notes-record">Record notes</button>
+            <button type="button" class="am-btn" id="notes-stop-recording">Stop recording and save</button>
+            <button type="button" class="am-btn" id="notes-editor-refresh">Refresh Notes</button>
+            <button type="button" class="am-btn" id="notes-editor-back">Back to Notes</button>
+            <span id="notes-editor-status" role="status" aria-live="polite"></span>
+            <aside id="notes-editor-monitor" class="notes-monitor" aria-live="polite">Monitor: local editor ready. This reports this page’s state; it is not live screen sync.</aside>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -576,6 +612,9 @@
       <section id="rol-finance-mazda-objects" class="view">
       <iframe class="plan-frame" src="/notes_plans_handoffs/mazda_objects.html"></iframe>
     </section>
+    <section id="all-monitors" class="view">
+      <all-monitors-page></all-monitors-page>
+    </section>
   </main>
 
   <!-- Code-change restart prompt -->
@@ -642,6 +681,8 @@
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20261103wkrsvg"></script>
+  <script src="/vendor/canvas-gauges/gauge.min.js"></script>
+  <script type="module" src="/js/boot/all-monitors.js?v=20261104monitors"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20261105-notes-live-highlight"></script>
 </body>
 </html>

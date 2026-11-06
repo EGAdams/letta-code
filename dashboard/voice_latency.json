@@ -1,800 +1,5 @@
 [
   {
-    "received_at": "2026-10-23T17:32:34.886639",
-    "traceId": "id-32a556a8-6c0b-42a8-ad45-57fab2a26a36",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-a052326c-600d-4160-9947-72d4f5f69238",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "failed",
-    "startedAtMs": 391608,
-    "finishedAtMs": 395024.200000003,
-    "samples": {
-      "speech_ended": {
-        "atMs": 391608
-      },
-      "transcript_ready": {
-        "atMs": 393793.80000000447
-      },
-      "agent_requested": {
-        "atMs": 393797.30000000447
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 2185.8000000044703
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:35:40.854417",
-    "traceId": "id-2bf1d484-92da-400b-8811-4aa9f8e05e0f",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-dde5456e-6ea5-428f-8f2e-0481d4707bee",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 26595.20000000298,
-    "finishedAtMs": 35996.5,
-    "samples": {
-      "speech_ended": {
-        "atMs": 26595.29999999702
-      },
-      "transcript_ready": {
-        "atMs": 27850
-      },
-      "agent_requested": {
-        "atMs": 27856.29999999702
-      },
-      "first_agent_delta": {
-        "atMs": 30723.59999999404
-      },
-      "first_sentence_queued": {
-        "atMs": 30729.39999999106
-      },
-      "first_tts_requested": {
-        "atMs": 30730.39999999106
-      },
-      "first_audio_ready": {
-        "atMs": 32533.20000000298
-      },
-      "first_audio_playing": {
-        "atMs": 32533.20000000298
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1254.7000000029802,
-      "agentToFirstDelta": 2867.2999999970198,
-      "firstDeltaToSentence": 5.799999997019768,
-      "ttsToAudioReady": 1802.800000011921,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 4676.9000000059605,
-      "speechToFirstAudio": 5937.9000000059605
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:36:02.730658",
-    "traceId": "id-4816cffd-740d-4421-b0d4-f3dded5d16ad",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-d60d4f8d-d269-48c0-a7d7-9c5b75072416",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 47247.20000000298,
-    "finishedAtMs": 59733.70000000298,
-    "samples": {
-      "speech_ended": {
-        "atMs": 47247.29999999702
-      },
-      "transcript_ready": {
-        "atMs": 52631.79999999702
-      },
-      "agent_requested": {
-        "atMs": 52634.29999999702
-      },
-      "first_agent_delta": {
-        "atMs": 55000
-      },
-      "first_sentence_queued": {
-        "atMs": 55003.20000000298
-      },
-      "first_tts_requested": {
-        "atMs": 55003.39999999106
-      },
-      "first_audio_ready": {
-        "atMs": 56778.20000000298
-      },
-      "first_audio_playing": {
-        "atMs": 56778.20000000298
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 5384.5,
-      "agentToFirstDelta": 2365.7000000029802,
-      "firstDeltaToSentence": 3.2000000029802322,
-      "ttsToAudioReady": 1774.800000011921,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 4143.9000000059605,
-      "speechToFirstAudio": 9530.90000000596
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:37:23.804657",
-    "traceId": "id-9d60a7c6-514c-493d-9d33-78778303ed56",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-ea631970-84ab-4c76-9db7-af22c1247962",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 88984,
-    "finishedAtMs": 140800.70000000298,
-    "samples": {
-      "speech_ended": {
-        "atMs": 88984
-      },
-      "transcript_ready": {
-        "atMs": 93081.39999999106
-      },
-      "agent_requested": {
-        "atMs": 93084.5
-      },
-      "first_agent_delta": {
-        "atMs": 96252.79999999702
-      },
-      "first_sentence_queued": {
-        "atMs": 96256.79999999702
-      },
-      "first_tts_requested": {
-        "atMs": 96257.39999999106
-      },
-      "first_audio_ready": {
-        "atMs": 97763.29999999702
-      },
-      "first_audio_playing": {
-        "atMs": 97763.29999999702
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 4097.399999991059,
-      "agentToFirstDelta": 3168.2999999970198,
-      "firstDeltaToSentence": 4,
-      "ttsToAudioReady": 1505.9000000059605,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 4678.79999999702,
-      "speechToFirstAudio": 8779.29999999702
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:38:01.505533",
-    "traceId": "id-b23d8a80-e01a-4a2b-a73f-915f11677642",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-871540c2-3ca5-4641-b445-b1eb42a62dd5",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 157103.79999999702,
-    "finishedAtMs": 178512.20000000298,
-    "samples": {
-      "speech_ended": {
-        "atMs": 157104
-      },
-      "transcript_ready": {
-        "atMs": 158003.79999999702
-      },
-      "agent_requested": {
-        "atMs": 158009.79999999702
-      },
-      "first_agent_delta": {
-        "atMs": 160677.70000000298
-      },
-      "first_sentence_queued": {
-        "atMs": 160684.5
-      },
-      "first_tts_requested": {
-        "atMs": 160685
-      },
-      "first_audio_ready": {
-        "atMs": 163505.59999999404
-      },
-      "first_audio_playing": {
-        "atMs": 163505.59999999404
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 899.7999999970198,
-      "agentToFirstDelta": 2667.9000000059605,
-      "firstDeltaToSentence": 6.799999997019768,
-      "ttsToAudioReady": 2820.5999999940395,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 5495.79999999702,
-      "speechToFirstAudio": 6401.5999999940395
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:39:23.002726",
-    "traceId": "id-1e1f4898-a7f9-4ac5-a013-2d89646af5b7",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-a0580484-0247-49c0-9a07-bf27aa3a6b86",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 188976.5,
-    "finishedAtMs": 259999,
-    "samples": {
-      "speech_ended": {
-        "atMs": 188976.59999999404
-      },
-      "transcript_ready": {
-        "atMs": 189736.5
-      },
-      "agent_requested": {
-        "atMs": 189739.09999999404
-      },
-      "first_agent_delta": {
-        "atMs": 192420.20000000298
-      },
-      "first_sentence_queued": {
-        "atMs": 192423.39999999106
-      },
-      "first_tts_requested": {
-        "atMs": 192423.59999999404
-      },
-      "first_audio_ready": {
-        "atMs": 203559.20000000298
-      },
-      "first_audio_playing": {
-        "atMs": 203559.29999999702
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 759.9000000059605,
-      "agentToFirstDelta": 2681.1000000089407,
-      "firstDeltaToSentence": 3.199999988079071,
-      "ttsToAudioReady": 11135.60000000894,
-      "audioReadyToPlayback": 0.09999999403953552,
-      "agentToFirstAudio": 13820.20000000298,
-      "speechToFirstAudio": 14582.70000000298
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:40:25.112793",
-    "traceId": "id-84dac1b1-7f00-4fbe-85c7-c14b705bf6c7",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-0eb76bf8-9fb1-4e0b-bdcf-1aa40eb29eb4",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 276434.09999999404,
-    "finishedAtMs": 322113.5,
-    "samples": {
-      "speech_ended": {
-        "atMs": 276434.09999999404
-      },
-      "transcript_ready": {
-        "atMs": 277848.59999999404
-      },
-      "agent_requested": {
-        "atMs": 277854.700000003
-      },
-      "first_agent_delta": {
-        "atMs": 280312.59999999404
-      },
-      "first_sentence_queued": {
-        "atMs": 280320.39999999106
-      },
-      "first_tts_requested": {
-        "atMs": 280321.09999999404
-      },
-      "first_audio_ready": {
-        "atMs": 284155.39999999106
-      },
-      "first_audio_playing": {
-        "atMs": 284155.5
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1414.5,
-      "agentToFirstDelta": 2457.8999999910593,
-      "firstDeltaToSentence": 7.799999997019768,
-      "ttsToAudioReady": 3834.2999999970198,
-      "audioReadyToPlayback": 0.10000000894069672,
-      "agentToFirstAudio": 6300.79999999702,
-      "speechToFirstAudio": 7721.4000000059605
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:42:47.303666",
-    "traceId": "id-5f67d4dd-5162-4af9-80b4-9300330cce0c",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-a6d6af4d-5bba-4680-8e0b-b374b3770727",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 393793.200000003,
-    "finishedAtMs": 464300.700000003,
-    "samples": {
-      "speech_ended": {
-        "atMs": 393793.39999999106
-      },
-      "transcript_ready": {
-        "atMs": 396425.299999997
-      },
-      "agent_requested": {
-        "atMs": 396428.09999999404
-      },
-      "first_agent_delta": {
-        "atMs": 399701.799999997
-      },
-      "first_sentence_queued": {
-        "atMs": 399710.59999999404
-      },
-      "first_tts_requested": {
-        "atMs": 399711.39999999106
-      },
-      "first_audio_ready": {
-        "atMs": 410385.59999999404
-      },
-      "first_audio_playing": {
-        "atMs": 410385.700000003
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 2631.9000000059605,
-      "agentToFirstDelta": 3273.7000000029802,
-      "firstDeltaToSentence": 8.799999997019768,
-      "ttsToAudioReady": 10674.20000000298,
-      "audioReadyToPlayback": 0.10000000894069672,
-      "agentToFirstAudio": 13957.60000000894,
-      "speechToFirstAudio": 16592.30000001192
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:47:13.067487",
-    "traceId": "id-4aa518a8-a40f-4e4b-8aaf-b9dd66448f2a",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-886baff2-1e90-45d7-bd94-5302160396a6",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 491937,
-    "finishedAtMs": 729985.099999994,
-    "samples": {
-      "speech_ended": {
-        "atMs": 491937
-      },
-      "transcript_ready": {
-        "atMs": 493057.700000003
-      },
-      "agent_requested": {
-        "atMs": 493060.799999997
-      },
-      "first_agent_delta": {
-        "atMs": 498690.89999999106
-      },
-      "first_sentence_queued": {
-        "atMs": 498695.39999999106
-      },
-      "first_tts_requested": {
-        "atMs": 498695.799999997
-      },
-      "first_audio_ready": {
-        "atMs": 502851.799999997
-      },
-      "first_audio_playing": {
-        "atMs": 502851.799999997
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1120.7000000029802,
-      "agentToFirstDelta": 5630.0999999940395,
-      "firstDeltaToSentence": 4.5,
-      "ttsToAudioReady": 4156,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 9791,
-      "speechToFirstAudio": 10914.79999999702
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:49:03.335307",
-    "traceId": "id-dd8b7651-e25b-485e-aba7-a2506ad6fa1f",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-f9f65258-fa8c-4cf0-9e49-56fca4f60129",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 771244.8999999911,
-    "finishedAtMs": 840326.700000003,
-    "samples": {
-      "speech_ended": {
-        "atMs": 771245
-      },
-      "transcript_ready": {
-        "atMs": 774764
-      },
-      "agent_requested": {
-        "atMs": 774773.8999999911
-      },
-      "first_agent_delta": {
-        "atMs": 778377.700000003
-      },
-      "first_sentence_queued": {
-        "atMs": 778380.3999999911
-      },
-      "first_tts_requested": {
-        "atMs": 778380.5
-      },
-      "first_audio_ready": {
-        "atMs": 784161.599999994
-      },
-      "first_audio_playing": {
-        "atMs": 784161.599999994
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 3519,
-      "agentToFirstDelta": 3603.800000011921,
-      "firstDeltaToSentence": 2.699999988079071,
-      "ttsToAudioReady": 5781.0999999940395,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 9387.70000000298,
-      "speechToFirstAudio": 12916.59999999404
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:50:20.916938",
-    "traceId": "id-18d45f43-3a6b-499b-8c7e-ad3e81d44a38",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-03e098c9-ad72-4998-be44-db31038bf9bf",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "failed",
-    "startedAtMs": 897770.799999997,
-    "finishedAtMs": 917923.099999994,
-    "samples": {
-      "speech_ended": {
-        "atMs": 897770.8999999911
-      },
-      "transcript_ready": {
-        "atMs": 902256.700000003
-      },
-      "agent_requested": {
-        "atMs": 902259.5
-      },
-      "first_agent_delta": {
-        "atMs": 906144
-      },
-      "first_sentence_queued": {
-        "atMs": 906147.599999994
-      },
-      "first_tts_requested": {
-        "atMs": 906147.8999999911
-      },
-      "first_audio_ready": {
-        "atMs": 910910.3999999911
-      },
-      "first_audio_playing": {
-        "atMs": 910910.3999999911
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 4485.800000011921,
-      "agentToFirstDelta": 3884.5,
-      "firstDeltaToSentence": 3.5999999940395355,
-      "ttsToAudioReady": 4762.5,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 8650.89999999106,
-      "speechToFirstAudio": 13139.5
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:51:53.605542",
-    "traceId": "id-a37bdfb3-de29-47dc-97a2-c3be4544e368",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-31aefc94-540d-4b85-a4e5-270890882891",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 943161.299999997,
-    "finishedAtMs": 1010602.799999997,
-    "samples": {
-      "speech_ended": {
-        "atMs": 943161.299999997
-      },
-      "transcript_ready": {
-        "atMs": 944239.200000003
-      },
-      "agent_requested": {
-        "atMs": 944243.299999997
-      },
-      "first_agent_delta": {
-        "atMs": 947514.799999997
-      },
-      "first_sentence_queued": {
-        "atMs": 947517.700000003
-      },
-      "first_tts_requested": {
-        "atMs": 947517.8999999911
-      },
-      "first_audio_ready": {
-        "atMs": 949615.299999997
-      },
-      "first_audio_playing": {
-        "atMs": 949615.299999997
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1077.9000000059605,
-      "agentToFirstDelta": 3271.5,
-      "firstDeltaToSentence": 2.9000000059604645,
-      "ttsToAudioReady": 2097.4000000059605,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 5372,
-      "speechToFirstAudio": 6454
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:54:06.520841",
-    "traceId": "id-4f35c320-cd20-42ab-97fb-066384987d3d",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-cb85c9ce-ba68-4f6a-8552-b2eed29e8e55",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 1038733.700000003,
-    "finishedAtMs": 1143523.599999994,
-    "samples": {
-      "speech_ended": {
-        "atMs": 1038733.799999997
-      },
-      "transcript_ready": {
-        "atMs": 1041729.599999994
-      },
-      "agent_requested": {
-        "atMs": 1041736.3999999911
-      },
-      "first_agent_delta": {
-        "atMs": 1101868.099999994
-      },
-      "first_sentence_queued": {
-        "atMs": 1101871.399999991
-      },
-      "first_tts_requested": {
-        "atMs": 1101871.799999997
-      },
-      "first_audio_ready": {
-        "atMs": 1109931.099999994
-      },
-      "first_audio_playing": {
-        "atMs": 1109931.099999994
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 2995.7999999970198,
-      "agentToFirstDelta": 60131.70000000298,
-      "firstDeltaToSentence": 3.2999999970197678,
-      "ttsToAudioReady": 8059.29999999702,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 68194.70000000298,
-      "speechToFirstAudio": 71197.29999999702
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:54:58.934421",
-    "traceId": "id-ec9aaaa8-f009-407d-9ebe-5fa022bc4a77",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-cd0f46a1-36be-4ac9-bacd-5024e6ba3ce8",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 1165893.899999991,
-    "finishedAtMs": 1195913.5,
-    "samples": {
-      "speech_ended": {
-        "atMs": 1165893.899999991
-      },
-      "transcript_ready": {
-        "atMs": 1168300.599999994
-      },
-      "agent_requested": {
-        "atMs": 1168303.299999997
-      },
-      "first_agent_delta": {
-        "atMs": 1170971.700000003
-      },
-      "first_sentence_queued": {
-        "atMs": 1170974.299999997
-      },
-      "first_tts_requested": {
-        "atMs": 1170974.599999994
-      },
-      "first_audio_ready": {
-        "atMs": 1178783.200000003
-      },
-      "first_audio_playing": {
-        "atMs": 1178783.200000003
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 2406.7000000029802,
-      "agentToFirstDelta": 2668.4000000059605,
-      "firstDeltaToSentence": 2.5999999940395355,
-      "ttsToAudioReady": 7808.600000008941,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 10479.90000000596,
-      "speechToFirstAudio": 12889.300000011921
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:56:24.155432",
-    "traceId": "id-404568ca-e917-4657-82f3-c55340c9aa24",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-16245915-aa58-458c-a1cb-1aa5e43949aa",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 1236817.200000003,
-    "finishedAtMs": 1281131.700000003,
-    "samples": {
-      "speech_ended": {
-        "atMs": 1236817.200000003
-      },
-      "transcript_ready": {
-        "atMs": 1238570.700000003
-      },
-      "agent_requested": {
-        "atMs": 1238573.5
-      },
-      "first_agent_delta": {
-        "atMs": 1241506.599999994
-      },
-      "first_sentence_queued": {
-        "atMs": 1241509.599999994
-      },
-      "first_tts_requested": {
-        "atMs": 1241510.200000003
-      },
-      "first_audio_ready": {
-        "atMs": 1248180
-      },
-      "first_audio_playing": {
-        "atMs": 1248180
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1753.5,
-      "agentToFirstDelta": 2933.0999999940395,
-      "firstDeltaToSentence": 3,
-      "ttsToAudioReady": 6669.79999999702,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 9606.5,
-      "speechToFirstAudio": 11362.79999999702
-    }
-  },
-  {
-    "received_at": "2026-10-23T18:57:00.921742",
-    "traceId": "id-3fe29df1-e650-469d-95f0-1be50b350aca",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-9ab6c17e-1501-4ae5-a022-1fc5d9b13ba7",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "failed",
-    "startedAtMs": 1283170.799999997,
-    "finishedAtMs": 1317902.200000003,
-    "samples": {
-      "speech_ended": {
-        "atMs": 1283170.799999997
-      },
-      "transcript_ready": {
-        "atMs": 1284621.299999997
-      },
-      "agent_requested": {
-        "atMs": 1284623.700000003
-      },
-      "first_agent_delta": {
-        "atMs": 1287793.599999994
-      },
-      "first_sentence_queued": {
-        "atMs": 1287797.099999994
-      },
-      "first_tts_requested": {
-        "atMs": 1287797.700000003
-      },
-      "first_audio_ready": {
-        "atMs": 1296676
-      },
-      "first_audio_playing": {
-        "atMs": 1296676
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1450.5,
-      "agentToFirstDelta": 3169.8999999910593,
-      "firstDeltaToSentence": 3.5,
-      "ttsToAudioReady": 8878.29999999702,
-      "audioReadyToPlayback": 0,
-      "agentToFirstAudio": 12052.29999999702,
-      "speechToFirstAudio": 13505.20000000298
-    }
-  },
-  {
-    "received_at": "2026-10-23T20:30:03.537908",
-    "traceId": "id-02dd9363-8af7-47d2-9e45-a81c464250b8",
-    "context": {
-      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "generationId": "gen-29f7f8af-f003-4671-bf35-dfd99accec4c",
-      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
-      "inputMode": "push_to_talk"
-    },
-    "outcome": "completed",
-    "startedAtMs": 190485.89999999106,
-    "finishedAtMs": 232145.59999999404,
-    "samples": {
-      "speech_ended": {
-        "atMs": 190486.39999999106
-      },
-      "transcript_ready": {
-        "atMs": 192472.70000000298
-      },
-      "agent_requested": {
-        "atMs": 199163.79999999702
-      },
-      "first_agent_delta": {
-        "atMs": 202506.59999999404
-      },
-      "first_sentence_queued": {
-        "atMs": 202511.59999999404
-      },
-      "first_tts_requested": {
-        "atMs": 202511.89999999106
-      },
-      "first_audio_ready": {
-        "atMs": 205671.39999999106
-      },
-      "first_audio_playing": {
-        "atMs": 205671.5
-      }
-    },
-    "durationsMs": {
-      "speechToTranscript": 1986.300000011921,
-      "agentToFirstDelta": 3342.7999999970198,
-      "firstDeltaToSentence": 5,
-      "ttsToAudioReady": 3159.5,
-      "audioReadyToPlayback": 0.10000000894069672,
-      "agentToFirstAudio": 6507.70000000298,
-      "speechToFirstAudio": 15185.10000000894
-    }
-  },
-  {
     "received_at": "2026-10-23T20:31:17.427998",
     "traceId": "id-3e772d67-3fc9-4a51-b0d0-c4a268483cbc",
     "context": {
@@ -9394,6 +8599,793 @@
       "audioReadyToPlayback": 0,
       "agentToFirstAudio": 1224.8999999761581,
       "speechToFirstAudio": 18775.099999964237
+    }
+  },
+  {
+    "received_at": "2026-11-04T12:39:52.927940",
+    "traceId": "id-8ac8eb25-6cfa-4340-97e1-71f8be72ced8",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-79694397-d782-42b0-9a1d-64b0b6f11ee4",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 85342.20000000298,
+    "finishedAtMs": 150951.30000000447,
+    "samples": {
+      "speech_ended": {
+        "atMs": 85342.5
+      },
+      "transcript_ready": {
+        "atMs": 87467.80000000447
+      },
+      "agent_requested": {
+        "atMs": 94692.40000000596
+      },
+      "first_agent_delta": {
+        "atMs": 97392
+      },
+      "first_tts_requested": {
+        "atMs": 97433.40000000596
+      },
+      "first_sentence_queued": {
+        "atMs": 97437.10000000149
+      },
+      "first_audio_ready": {
+        "atMs": 135641.6000000015
+      },
+      "first_audio_playing": {
+        "atMs": 135641.6000000015
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 2125.3000000044703,
+      "agentToFirstDelta": 2699.5999999940395,
+      "firstDeltaToSentence": 45.100000001490116,
+      "ttsToAudioReady": 38208.19999999553,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 40949.19999999553,
+      "speechToFirstAudio": 50299.10000000149
+    }
+  },
+  {
+    "received_at": "2026-11-04T12:41:03.146666",
+    "traceId": "id-5c4c7a2c-69e5-4c8b-b103-e203d9e57589",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-3c432a94-5eef-4863-af7f-09c062a26105",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 177867.80000000447,
+    "finishedAtMs": 221180.6000000015,
+    "samples": {
+      "speech_ended": {
+        "atMs": 177868
+      },
+      "transcript_ready": {
+        "atMs": 180549.1000000015
+      },
+      "agent_requested": {
+        "atMs": 180556.70000000298
+      },
+      "first_agent_delta": {
+        "atMs": 182900.40000000596
+      },
+      "first_tts_requested": {
+        "atMs": 182908.70000000298
+      },
+      "first_sentence_queued": {
+        "atMs": 182912
+      },
+      "first_audio_ready": {
+        "atMs": 193521.40000000596
+      },
+      "first_audio_playing": {
+        "atMs": 193521.5
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 2681.10000000149,
+      "agentToFirstDelta": 2343.7000000029802,
+      "firstDeltaToSentence": 11.599999994039536,
+      "ttsToAudioReady": 10612.70000000298,
+      "audioReadyToPlayback": 0.09999999403953552,
+      "agentToFirstAudio": 12964.79999999702,
+      "speechToFirstAudio": 15653.5
+    }
+  },
+  {
+    "received_at": "2026-11-04T13:29:42.039524",
+    "traceId": "id-c83ab5e8-81bb-4052-84ee-73170da88c21",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-87b5dde5-0280-4c86-852e-57fd07f1a59a",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 46495.30000001192,
+    "finishedAtMs": 62960.30000001192,
+    "samples": {
+      "speech_ended": {
+        "atMs": 46495.39999997616
+      },
+      "transcript_ready": {
+        "atMs": 47223.60000002384
+      },
+      "agent_requested": {
+        "atMs": 47229.5
+      },
+      "first_agent_delta": {
+        "atMs": 48726
+      },
+      "first_tts_requested": {
+        "atMs": 48789.39999997616
+      },
+      "first_sentence_queued": {
+        "atMs": 48791.10000002384
+      },
+      "first_audio_ready": {
+        "atMs": 55586.60000002384
+      },
+      "first_audio_playing": {
+        "atMs": 55586.60000002384
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 728.2000000476837,
+      "agentToFirstDelta": 1496.5,
+      "firstDeltaToSentence": 65.10000002384186,
+      "ttsToAudioReady": 6797.200000047684,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 8357.100000023842,
+      "speechToFirstAudio": 9091.200000047684
+    }
+  },
+  {
+    "received_at": "2026-11-04T13:30:45.637440",
+    "traceId": "id-535ab6e0-9a66-4ef3-8bf7-fd8fda1414a7",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-1d4e4c64-6940-4dd2-bb4d-ac3990ac6b7c",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "interrupted",
+    "startedAtMs": 89881.5,
+    "finishedAtMs": 126553.89999997616,
+    "samples": {
+      "speech_ended": {
+        "atMs": 89881.60000002384
+      },
+      "transcript_ready": {
+        "atMs": 91430.39999997616
+      },
+      "agent_requested": {
+        "atMs": 91433.10000002384
+      },
+      "first_agent_delta": {
+        "atMs": 93069.5
+      },
+      "first_tts_requested": {
+        "atMs": 93072.60000002384
+      },
+      "first_sentence_queued": {
+        "atMs": 93073.89999997616
+      },
+      "first_audio_ready": {
+        "atMs": 100197.89999997616
+      },
+      "first_audio_playing": {
+        "atMs": 100198
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 1548.7999999523163,
+      "agentToFirstDelta": 1636.3999999761581,
+      "firstDeltaToSentence": 4.399999976158142,
+      "ttsToAudioReady": 7125.299999952316,
+      "audioReadyToPlayback": 0.10000002384185791,
+      "agentToFirstAudio": 8764.899999976158,
+      "speechToFirstAudio": 10316.399999976158
+    }
+  },
+  {
+    "received_at": "2026-11-04T13:34:21.952987",
+    "traceId": "id-dda426a3-dcbc-4e63-a610-37aeee11dcfe",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-25d85ef3-1c84-43e3-a77d-912e8dda848d",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 137135.69999998808,
+    "finishedAtMs": 342897.5,
+    "samples": {
+      "speech_ended": {
+        "atMs": 137135.69999998808
+      },
+      "transcript_ready": {
+        "atMs": 138631.19999998808
+      },
+      "agent_requested": {
+        "atMs": 138634
+      },
+      "first_agent_delta": {
+        "atMs": 328072.1999999881
+      },
+      "first_tts_requested": {
+        "atMs": 328297.39999997616
+      },
+      "first_sentence_queued": {
+        "atMs": 328302.60000002384
+      },
+      "first_audio_ready": {
+        "atMs": 333876.3000000119
+      },
+      "first_audio_playing": {
+        "atMs": 333876.3000000119
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 1495.5,
+      "agentToFirstDelta": 189438.19999998808,
+      "firstDeltaToSentence": 230.4000000357628,
+      "ttsToAudioReady": 5578.900000035763,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 195242.30000001192,
+      "speechToFirstAudio": 196740.60000002384
+    }
+  },
+  {
+    "received_at": "2026-11-04T13:35:05.066422",
+    "traceId": "id-d0871bdb-b547-4710-99ea-83db2bf7e9ad",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-e884887a-c94f-410b-9019-50c43e71b146",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "failed",
+    "startedAtMs": 353704.89999997616,
+    "finishedAtMs": 386018.3000000119,
+    "samples": {
+      "speech_ended": {
+        "atMs": 353705
+      },
+      "transcript_ready": {
+        "atMs": 354800.1999999881
+      },
+      "agent_requested": {
+        "atMs": 354803.5
+      },
+      "first_agent_delta": {
+        "atMs": 355511.8000000119
+      },
+      "first_tts_requested": {
+        "atMs": 355514.39999997616
+      },
+      "first_sentence_queued": {
+        "atMs": 355516.10000002384
+      },
+      "first_audio_ready": {
+        "atMs": 364825.5
+      },
+      "first_audio_playing": {
+        "atMs": 364825.5
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 1095.199999988079,
+      "agentToFirstDelta": 708.3000000119209,
+      "firstDeltaToSentence": 4.300000011920929,
+      "ttsToAudioReady": 9311.100000023842,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 10022,
+      "speechToFirstAudio": 11120.5
+    }
+  },
+  {
+    "received_at": "2026-11-04T17:31:57.078937",
+    "traceId": "id-71fcbf36-5d37-4538-bdbf-4b176eb5bcf4",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-8e0b7428-fd3a-40d3-92eb-d1e9f8c8f2cf",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 23738.59999999404,
+    "finishedAtMs": 67676.69999999553,
+    "samples": {
+      "speech_ended": {
+        "atMs": 23739
+      },
+      "transcript_ready": {
+        "atMs": 24912.59999999404
+      },
+      "agent_requested": {
+        "atMs": 24922.69999999553
+      },
+      "first_agent_delta": {
+        "atMs": 26731.89999999851
+      },
+      "first_tts_requested": {
+        "atMs": 26838.39999999851
+      },
+      "first_sentence_queued": {
+        "atMs": 26842.29999999702
+      },
+      "first_audio_ready": {
+        "atMs": 36727.09999999404
+      },
+      "first_audio_playing": {
+        "atMs": 36727.39999999851
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 1173.5999999940395,
+      "agentToFirstDelta": 1809.2000000029802,
+      "firstDeltaToSentence": 110.39999999850988,
+      "ttsToAudioReady": 9888.69999999553,
+      "audioReadyToPlayback": 0.30000000447034836,
+      "agentToFirstAudio": 11804.70000000298,
+      "speechToFirstAudio": 12988.39999999851
+    }
+  },
+  {
+    "received_at": "2026-11-04T18:17:15.208574",
+    "traceId": "id-0b01add1-46dd-49de-8c26-394a9f3ccfef",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-212c2f57-4a2c-49a6-972f-52114275ad5a",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "typed"
+    },
+    "outcome": "completed",
+    "startedAtMs": 63935.200000047684,
+    "finishedAtMs": 81520.10000002384,
+    "samples": {
+      "agent_requested": {
+        "atMs": 63949.30000001192
+      },
+      "first_agent_delta": {
+        "atMs": 65266.30000001192
+      },
+      "first_tts_requested": {
+        "atMs": 65356.200000047684
+      },
+      "first_sentence_queued": {
+        "atMs": 65357.5
+      },
+      "first_audio_ready": {
+        "atMs": 74469.20000004768
+      },
+      "first_audio_playing": {
+        "atMs": 74469.20000004768
+      }
+    },
+    "durationsMs": {
+      "agentToFirstDelta": 1317,
+      "firstDeltaToSentence": 91.19999998807907,
+      "ttsToAudioReady": 9113,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 10519.900000035763
+    }
+  },
+  {
+    "received_at": "2026-11-04T18:18:05.205100",
+    "traceId": "id-152db0ca-0dc0-46be-9af2-a3f716354be3",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-015c91cf-a6fa-4d9e-a03b-416f21002ba3",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 113745.20000004768,
+    "finishedAtMs": 128174.5,
+    "samples": {
+      "speech_ended": {
+        "atMs": 113745.30000001192
+      },
+      "transcript_ready": {
+        "atMs": 115598.30000001192
+      },
+      "agent_requested": {
+        "atMs": 115599.40000003576
+      },
+      "first_agent_delta": {
+        "atMs": 117381.90000003576
+      },
+      "first_tts_requested": {
+        "atMs": 117383.20000004768
+      },
+      "first_sentence_queued": {
+        "atMs": 117384.10000002384
+      },
+      "first_audio_ready": {
+        "atMs": 126900.90000003576
+      },
+      "first_audio_playing": {
+        "atMs": 126900.90000003576
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 1853,
+      "agentToFirstDelta": 1782.5,
+      "firstDeltaToSentence": 2.199999988079071,
+      "ttsToAudioReady": 9517.699999988079,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 11301.5,
+      "speechToFirstAudio": 13155.600000023842
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:35:48.373822",
+    "traceId": "id-663a513e-fd11-4734-ab5b-e25ec2d2d91a",
+    "context": {
+      "sessionId": "agent-sydney",
+      "generationId": "gen-e206d639-0af0-4d77-b5dd-7663b40e9255",
+      "agentId": "agent-sydney",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 53109.79999999702,
+    "finishedAtMs": 83793.40000000596,
+    "samples": {
+      "speech_ended": {
+        "atMs": 53110
+      },
+      "transcript_ready": {
+        "atMs": 65255.29999999702
+      },
+      "agent_requested": {
+        "atMs": 65257.29999999702
+      },
+      "first_agent_delta": {
+        "atMs": 68145
+      },
+      "first_tts_requested": {
+        "atMs": 68177.40000000596
+      },
+      "first_sentence_queued": {
+        "atMs": 68178.20000000298
+      },
+      "first_audio_ready": {
+        "atMs": 73492.79999999702
+      },
+      "first_audio_playing": {
+        "atMs": 73492.90000000596
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 12145.29999999702,
+      "agentToFirstDelta": 2887.7000000029802,
+      "firstDeltaToSentence": 33.20000000298023,
+      "ttsToAudioReady": 5315.399999991059,
+      "audioReadyToPlayback": 0.10000000894069672,
+      "agentToFirstAudio": 8235.60000000894,
+      "speechToFirstAudio": 20382.90000000596
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:36:50.530401",
+    "traceId": "id-001f1fb5-7eb9-4fe4-aaa6-0fa970a69d6d",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-e6f62d14-0a1a-44c0-88ff-29b5a9900570",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "failed",
+    "startedAtMs": 134469,
+    "finishedAtMs": 145979.60000000894,
+    "samples": {
+      "speech_ended": {
+        "atMs": 134469.10000000894
+      },
+      "transcript_ready": {
+        "atMs": 145030.60000000894
+      },
+      "agent_requested": {
+        "atMs": 145037.20000000298
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 10561.5
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:37:32.969661",
+    "traceId": "id-f17aa7e2-8a85-4d81-a9f1-c8acaa28ffa7",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-6040bc3d-2ce8-40dd-b409-5eed2086d771",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 53760.20000000298,
+    "finishedAtMs": 246866.20000000298,
+    "samples": {
+      "speech_ended": {
+        "atMs": 53760.40000000596
+      },
+      "transcript_ready": {
+        "atMs": 56284.79999999702
+      },
+      "agent_requested": {
+        "atMs": 56301.5
+      },
+      "first_agent_delta": {
+        "atMs": 58500.59999999404
+      },
+      "first_tts_requested": {
+        "atMs": 58503.59999999404
+      },
+      "first_sentence_queued": {
+        "atMs": 58505
+      },
+      "first_audio_ready": {
+        "atMs": 243245.70000000298
+      },
+      "first_audio_playing": {
+        "atMs": 243245.70000000298
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 2524.3999999910593,
+      "agentToFirstDelta": 2199.0999999940395,
+      "firstDeltaToSentence": 4.4000000059604645,
+      "ttsToAudioReady": 184742.10000000894,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 186944.20000000298,
+      "speechToFirstAudio": 189485.29999999702
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:48:58.634734",
+    "traceId": "id-6f16c944-7f03-4549-b4cd-8c371108feea",
+    "context": {
+      "sessionId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "generationId": "gen-dab5314b-d653-4116-a863-2d0b9a979509",
+      "agentId": "agent-38cf768e-e1eb-4c29-978a-c6bb64282d25",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 89918.30000001192,
+    "finishedAtMs": 106385.30000001192,
+    "samples": {
+      "speech_ended": {
+        "atMs": 89918.60000000894
+      },
+      "transcript_ready": {
+        "atMs": 93516.70000000298
+      },
+      "agent_requested": {
+        "atMs": 93524.30000001192
+      },
+      "first_agent_delta": {
+        "atMs": 95473.20000000298
+      },
+      "first_tts_requested": {
+        "atMs": 95479.40000000596
+      },
+      "first_sentence_queued": {
+        "atMs": 95482.60000000894
+      },
+      "first_audio_ready": {
+        "atMs": 101819.10000000894
+      },
+      "first_audio_playing": {
+        "atMs": 101819.40000000596
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 3598.0999999940395,
+      "agentToFirstDelta": 1948.8999999910593,
+      "firstDeltaToSentence": 9.400000005960464,
+      "ttsToAudioReady": 6339.70000000298,
+      "audioReadyToPlayback": 0.29999999701976776,
+      "agentToFirstAudio": 8295.09999999404,
+      "speechToFirstAudio": 11900.79999999702
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:50:15.695499",
+    "traceId": "id-32b136cb-deb9-4e91-a244-c462ef970fa4",
+    "context": {
+      "sessionId": "agent-sydney",
+      "generationId": "gen-21c9a7bc-8012-4ba7-8fc5-189835c3033c",
+      "agentId": "agent-sydney",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 144129,
+    "finishedAtMs": 183453.40000000596,
+    "samples": {
+      "speech_ended": {
+        "atMs": 144129.10000000894
+      },
+      "transcript_ready": {
+        "atMs": 154963
+      },
+      "agent_requested": {
+        "atMs": 154970.90000000596
+      },
+      "first_agent_delta": {
+        "atMs": 156514.80000001192
+      },
+      "first_tts_requested": {
+        "atMs": 156566.60000000894
+      },
+      "first_sentence_queued": {
+        "atMs": 156568.80000001192
+      },
+      "first_audio_ready": {
+        "atMs": 165462.40000000596
+      },
+      "first_audio_playing": {
+        "atMs": 165462.40000000596
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 10833.89999999106,
+      "agentToFirstDelta": 1543.9000000059605,
+      "firstDeltaToSentence": 54,
+      "ttsToAudioReady": 8895.79999999702,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 10491.5,
+      "speechToFirstAudio": 21333.29999999702
+    }
+  },
+  {
+    "received_at": "2026-11-05T16:55:49.199817",
+    "traceId": "id-919c2669-8ad7-4bd6-93a8-37fef3be7e6e",
+    "context": {
+      "sessionId": "agent-sydney",
+      "generationId": "gen-dba1dec8-5dcd-48a0-ab9e-e98f40819365",
+      "agentId": "agent-sydney",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 232914,
+    "finishedAtMs": 516910.700000003,
+    "samples": {
+      "speech_ended": {
+        "atMs": 232914.10000000894
+      },
+      "transcript_ready": {
+        "atMs": 263011.60000000894
+      },
+      "agent_requested": {
+        "atMs": 263027.3000000119
+      },
+      "first_agent_delta": {
+        "atMs": 264707.40000000596
+      },
+      "first_tts_requested": {
+        "atMs": 264715.40000000596
+      },
+      "first_sentence_queued": {
+        "atMs": 264719.10000000894
+      },
+      "first_audio_ready": {
+        "atMs": 266306.8000000119
+      },
+      "first_audio_playing": {
+        "atMs": 266306.90000000596
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 30097.5,
+      "agentToFirstDelta": 1680.0999999940395,
+      "firstDeltaToSentence": 11.700000002980232,
+      "ttsToAudioReady": 1591.4000000059605,
+      "audioReadyToPlayback": 0.09999999403953552,
+      "agentToFirstAudio": 3279.5999999940395,
+      "speechToFirstAudio": 33392.79999999702
+    }
+  },
+  {
+    "received_at": "2026-11-05T17:00:12.228468",
+    "traceId": "id-320cb201-a027-4cad-a5f8-5805922796f2",
+    "context": {
+      "sessionId": "agent-sydney",
+      "generationId": "gen-03965eb4-7370-46af-8ac6-9796a756e5c0",
+      "agentId": "agent-sydney",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 732800.3000000119,
+    "finishedAtMs": 779934.900000006,
+    "samples": {
+      "speech_ended": {
+        "atMs": 732800.400000006
+      },
+      "transcript_ready": {
+        "atMs": 747578.700000003
+      },
+      "agent_requested": {
+        "atMs": 747589.900000006
+      },
+      "first_agent_delta": {
+        "atMs": 749525.3000000119
+      },
+      "first_tts_requested": {
+        "atMs": 749785.3000000119
+      },
+      "first_sentence_queued": {
+        "atMs": 749786.1000000089
+      },
+      "first_audio_ready": {
+        "atMs": 760598.1000000089
+      },
+      "first_audio_playing": {
+        "atMs": 760598.200000003
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 14778.29999999702,
+      "agentToFirstDelta": 1935.4000000059605,
+      "firstDeltaToSentence": 260.79999999701977,
+      "ttsToAudioReady": 10812.79999999702,
+      "audioReadyToPlayback": 0.09999999403953552,
+      "agentToFirstAudio": 13008.29999999702,
+      "speechToFirstAudio": 27797.79999999702
+    }
+  },
+  {
+    "received_at": "2026-11-06T05:24:29.927071",
+    "traceId": "id-441287ec-cb38-416d-b24f-84271519ef6d",
+    "context": {
+      "sessionId": "agent-sydney",
+      "generationId": "gen-eacb77a7-37de-4cec-8391-30b477edbeb7",
+      "agentId": "agent-sydney",
+      "inputMode": "push_to_talk"
+    },
+    "outcome": "completed",
+    "startedAtMs": 54193.700000047684,
+    "finishedAtMs": 82945.80000007153,
+    "samples": {
+      "speech_ended": {
+        "atMs": 54193.800000071526
+      },
+      "transcript_ready": {
+        "atMs": 70423.5
+      },
+      "agent_requested": {
+        "atMs": 70426.70000004768
+      },
+      "first_agent_delta": {
+        "atMs": 75788.10000002384
+      },
+      "first_tts_requested": {
+        "atMs": 75791.20000004768
+      },
+      "first_sentence_queued": {
+        "atMs": 75792.80000007153
+      },
+      "first_audio_ready": {
+        "atMs": 77948.20000004768
+      },
+      "first_audio_playing": {
+        "atMs": 77948.20000004768
+      }
+    },
+    "durationsMs": {
+      "speechToTranscript": 16229.699999928474,
+      "agentToFirstDelta": 5361.399999976158,
+      "firstDeltaToSentence": 4.700000047683716,
+      "ttsToAudioReady": 2157,
+      "audioReadyToPlayback": 0,
+      "agentToFirstAudio": 7521.5,
+      "speechToFirstAudio": 23754.399999976158
     }
   }
 ]

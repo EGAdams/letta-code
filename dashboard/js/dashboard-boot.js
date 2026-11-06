@@ -17,6 +17,7 @@ import { createAgentBridgePoll } from "./boot/agent-bridge-poll.js";
 import { createAgentManager } from "./boot/agent-manager.js";
 import { createAgentTabStatus } from "./boot/agent-tab-status.js";
 import { bindNavigation } from "./boot/bindings/index.js";
+import { createDashboardVersion } from "./boot/dashboard-version.js";
 import { applyDeepLink } from "./boot/deep-link.js";
 import { createGates } from "./boot/gates.js";
 import { createModelStats } from "./boot/model-stats.js";
@@ -37,6 +38,8 @@ import { createStatusHome } from "./boot/status-home.js";
 import { createViewNavigator } from "./boot/view-navigator.js";
 import { createWorkerActivity } from "./boot/worker-activity.js";
 import { createWslInterop } from "./boot/wsl-interop.js";
+import { BrowserSpeechRecognitionListener } from "./implementation/browser-speech-recognition-listener.js";
+import { HandsFreeNotesController } from "./implementation/hands-free-notes-controller.js";
 import {
   ActivePoller,
   AdwPromptDialog,
@@ -84,12 +87,43 @@ const { startupGate, agentGate } = createGates({
 });
 const viewNav = createViewNavigator({ doc, nav });
 viewNav.setAgentDetailContent("Agent");
-createNotes({ doc, http });
+const notes = createNotes({ doc, http });
+const _notesHandsFree = new HandsFreeNotesController({
+  listener: new BrowserSpeechRecognitionListener({ window: win }),
+  textarea: notes.textarea,
+  status: notes.status,
+  toggleButton: doc.getElementById("notes-hands-free"),
+  onButton: doc.getElementById("notes-toyota-on"),
+  offButton: doc.getElementById("notes-toyota-off"),
+  recordButton: doc.getElementById("notes-record"),
+  stopButton: doc.getElementById("notes-stop-recording"),
+  openNew: notes.openNew,
+  setName: notes.setName,
+  save: notes.save,
+  read: notes.read,
+}).bind();
+void http
+  .getJSON(`/api/dashboard-config?_read=${Date.now()}`)
+  .then((config) => {
+    const address = doc.getElementById("mailing-address-value");
+    if (address)
+      address.textContent =
+        config.mailing_address ||
+        config.mailing_city_state ||
+        "Grand Rapids, MI";
+  })
+  .catch(() => {});
+// Re-read the directory whenever Notes is opened so changes made elsewhere
+// become visible without requiring a full page reload.
+doc
+  .querySelector('[data-nav="main"][data-target="notes"]')
+  ?.addEventListener("click", () => {
+    void notes?.load?.();
+  });
 doc
   .getElementById("dashboard-notes-overview")
   ?.addEventListener("click", () => {
-    const homeTab = nav.main.querySelector('[data-target="home"]');
-    viewNav.setActive(nav.main, '[data-nav="main"][data-target]', homeTab);
+    viewNav.clearActive(nav.main, '[data-nav="main"][data-target]');
     viewNav.activateView("home");
   });
 
@@ -128,6 +162,7 @@ providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const WI = createWslInterop({ doc, http, viewNav });
 const WKR = createWorkerActivity({ doc, win, http });
+createDashboardVersion({ doc });
 const ABP = createAgentBridgePoll({ doc, win, http, workerFeed: WKR });
 const PRN = createPrinterPanel({ doc, win, http });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
@@ -188,6 +223,8 @@ new AdwPromptDialog({ http }).start();
 
 startReceptionist({ http, speech });
 applyDeepLink({ nav, AM, RF });
+// Every browser page load starts at Toyota, regardless of stale route state.
+viewNav.resetForPageLoad();
 void createStartupChecks({
   doc,
   http,
