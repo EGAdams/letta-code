@@ -7,15 +7,18 @@ restarts, or mutates task records.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
+import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from monitoring import agent_bridge_poll, model_registry, worker_supervisor
 from monitoring.supervisor_contracts import ITaskLedgerReader
-from monitoring.supervisor_sources import FileLedgerReader, PostOfficeLedgerReader
+from monitoring.supervisor_sources import FileLedgerReader, GatewayAwareLedgerReader, PostOfficeLedgerReader
 from monitoring.supervisor_policy import (MAX_EVENTS, Thresholds, TaskEscalationState,
                                          evaluate_task, tier_for_age)
 from monitoring.task_timing import queue_age as _queue_age
@@ -63,6 +66,21 @@ def _worker_diagnostic(tasks: list[dict] | None, now: float) -> dict | None:
     except (TypeError, ValueError):
         return None
     return worker_supervisor.diagnose(service=service, state=worker.get("state"), tasks=tasks, now=now)
+
+
+DEFAULT_GATEWAY_URL = "https://bridge.americansjewelry.com/api/agent-bridge/v1"
+DEFAULT_TOKEN_FILE = "~/.config/agent_bridge/worker_token"
+
+
+def gateway_head(package: Path, url: str, token_file: Path) -> Callable[[], str | None]:
+    """The one place that names the concrete gateway client: a read-only peek at the queue head."""
+    def head() -> str | None:
+        if str(package) not in sys.path:
+            sys.path.insert(0, str(package))
+        http = importlib.import_module("agent_bridge_worker.adapters.http_gateway")
+        gateway = http.HttpTaskGateway(url, token_file.read_text(encoding="utf-8").strip(), timeout_seconds=10)
+        return gateway.next()
+    return head
 
 
 def run_cycle(
@@ -118,6 +136,10 @@ def main() -> None:
     package = Path(os.environ.get("ADW_AGENT_BLOCKS_PACKAGE", "~/agent_blocks/lancedb_memory")).expanduser()
     reader = (FileLedgerReader(ledger) if os.environ.get("WORKER_ACTIVITY_SNAPSHOT")
               else PostOfficeLedgerReader(package))
+    token_file = Path(os.environ.get("BRIDGE_WORKER_TOKEN_FILE", DEFAULT_TOKEN_FILE)).expanduser()
+    if token_file.is_file() and not os.environ.get("ADW_SUPERVISOR_NO_GATEWAY"):
+        reader = GatewayAwareLedgerReader(reader, gateway_head(
+            package, os.environ.get("BRIDGE_GATEWAY_URL", DEFAULT_GATEWAY_URL), token_file))
     interval = float(os.environ.get("ADW_SUPERVISOR_POLL_SECONDS", "20"))
     if not 1 <= interval <= 3600:
         parser.error("poll interval must be between 1 and 3600 seconds")

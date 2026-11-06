@@ -230,3 +230,27 @@ def test_unknown_age_is_explicit_and_does_not_erase_prior_escalation():
     state = sup.evaluate_task({"id": "x", "status": "queued"}, prior, THRESHOLDS, now=1000)
     assert state.tier == "recommend"
     assert state.observation_error
+
+
+def test_task_stuck_behind_a_busy_worker_escalates_end_to_end(tmp_path):
+    """Controlled failure: the gateway head never gets claimed. The real run_cycle, a real
+    state file and the real policy must raise warn -> recommend -> diagnose -> incident."""
+    from monitoring.adw_supervisor import run_cycle
+    from monitoring.supervisor_contracts import LedgerObservation
+    from monitoring.supervisor_policy import Thresholds
+    from monitoring.supervisor_sources import GatewayAwareLedgerReader
+
+    class Busy:   # the worker is mid-way through a long write task; nothing else is local
+        def read(self, now):
+            return LedgerObservation(tasks=[], source="local-post-office", updated_at=now)
+
+    task = "t_" + "5" * 24
+    reader = GatewayAwareLedgerReader(Busy(), lambda: task)
+    state, ledger = tmp_path / "state.json", tmp_path / "ledger.json"
+    seen = {}
+    for elapsed in (0, 130, 310, 610, 1810):
+        snap = run_cycle(ledger_path=ledger, state_path=state, thresholds=Thresholds(),
+                         now=10_000.0 + elapsed, reader=reader)
+        seen[elapsed] = snap["tasks"][task]["tier"]
+    assert seen == {0: "ok", 130: "warn", 310: "recommend", 610: "diagnose", 1810: "incident"}
+    assert snap["coverage_complete"] and snap["alerts"][0]["task_id"] == task

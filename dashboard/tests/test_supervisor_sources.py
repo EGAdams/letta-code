@@ -109,3 +109,36 @@ def test_no_progress_event_is_bounded_and_replaying_a_cycle_is_idempotent():
 def test_invalid_thresholds_are_rejected(values):
     with pytest.raises(ValueError):
         sup.Thresholds(*values)
+
+
+def test_gateway_head_is_added_and_ages_while_unclaimed():
+    from monitoring.supervisor_contracts import LedgerObservation
+    from monitoring.supervisor_sources import GatewayAwareLedgerReader
+
+    class Local:
+        def read(self, now):
+            return LedgerObservation(tasks=[], source="local-post-office", updated_at=now)
+
+    head = ["t_" + "a" * 24]
+    reader = GatewayAwareLedgerReader(Local(), lambda: head[0])
+    first = reader.read(1000.0)
+    assert [t.id for t in first.tasks] == head and first.coverage_complete
+    later = reader.read(1700.0)
+    assert later.tasks[0].queued_at == 1000.0   # age keeps growing, first-seen is kept
+    head[0] = None
+    assert reader.read(1800.0).tasks == [] and reader._first_seen == {}
+
+
+def test_unreachable_gateway_is_reported_not_an_empty_queue():
+    from monitoring.supervisor_contracts import LedgerObservation
+    from monitoring.supervisor_sources import GatewayAwareLedgerReader
+
+    class Local:
+        def read(self, now):
+            return LedgerObservation(tasks=[], source="local-post-office", updated_at=now)
+
+    def down():
+        raise OSError("no route")
+
+    seen = GatewayAwareLedgerReader(Local(), down).read(1.0)
+    assert not seen.coverage_complete and "could not be checked" in seen.coverage_reason

@@ -1,15 +1,16 @@
-"""Read-only ledger Adapter strategies. Neither adapter calls a worker API."""
+"""Read-only ledger Adapter strategies. None calls a worker API; the gateway one only peeks the queue head."""
 from __future__ import annotations
 
 import importlib
 import json
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from monitoring.supervisor_contracts import LedgerObservation, TaskObservation
+from monitoring.supervisor_contracts import ITaskLedgerReader, LedgerObservation, TaskObservation
 
 
 class FileLedgerReader:
@@ -66,3 +67,42 @@ class PostOfficeLedgerReader:
             )
         except (ImportError, OSError, ValueError, TypeError):
             return LedgerObservation(error="local post office could not be read; check package path and environment")
+
+
+class GatewayAwareLedgerReader:
+    """Decorator: add the task waiting at the gateway's head, which no local file can show.
+
+    A task nobody has claimed exists only on the gateway, so while one long task holds
+    the worker, a queued diagnostic is invisible locally. `head` asks the gateway for
+    the oldest queued task id (a read-only peek, nothing is claimed). The gateway gives
+    the id and no time, so the age is how long this reader has watched that id at the
+    head: a floor, never an overstatement. Oldest-first order means the head's age is
+    the queue's age. If the gateway can't be asked, coverage says so rather than
+    claiming an empty queue.
+    """
+
+    def __init__(self, inner: ITaskLedgerReader, head: Callable[[], str | None]) -> None:
+        self._inner = inner
+        self._head = head
+        self._first_seen: dict[str, float] = {}
+
+    def read(self, now: float) -> LedgerObservation:
+        observation = self._inner.read(now)
+        try:
+            head = self._head()
+        except Exception as error:  # noqa: BLE001 -- an unreachable gateway is a finding, not a crash
+            return observation.model_copy(update={
+                "coverage_complete": False,
+                "coverage_reason": f"Gateway queue could not be checked ({type(error).__name__}); queue health is unknown."})
+        self._first_seen = {key: value for key, value in self._first_seen.items() if key == head}
+        if head is None or observation.tasks is None:
+            return observation.model_copy(update={"coverage": "gateway+local-post-office",
+                                                  "coverage_complete": observation.tasks is not None,
+                                                  "coverage_reason": "Gateway queue is empty." if head is None else observation.coverage_reason})
+        tasks = list(observation.tasks)
+        if head not in {task.id for task in tasks}:
+            first = self._first_seen.setdefault(head, now)
+            tasks.append(TaskObservation(id=head, status="queued", queued_at=first, last_update=first))
+        return observation.model_copy(update={"tasks": tasks, "coverage": "gateway+local-post-office",
+                                              "coverage_complete": True,
+                                              "coverage_reason": "Gateway queue head checked; oldest waiting task is covered."})
