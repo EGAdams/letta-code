@@ -23,8 +23,8 @@ export class StaleCodeWatcher {
     reload,
     setInterval = globalThis.setInterval?.bind(globalThis),
     clearInterval = globalThis.clearInterval?.bind(globalThis),
-    intervalMs = 20000,
-    batchSize = 12,
+    intervalMs = 15000,
+    batchSize = 40,
     log = () => {},
   } = {}) {
     if (
