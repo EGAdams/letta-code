@@ -24,6 +24,7 @@ import base64
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
@@ -90,6 +91,35 @@ class NotesBridgeClient:
             raise NoteConflictError(message, revision=payload.get("revision"))
         raise NotesBridgeError(message)
 
+    def _post(self, path: str, body: dict) -> dict:
+        status, payload = self._call("POST", path, {k: v for k, v in body.items() if v is not None})
+        if status != 200:
+            self._raise_for(status, payload)
+        return payload
+
+    def rename(self, filename: str, expected_revision: str, new_name: str | None = None,
+               category: int | None = None) -> dict:
+        """Rename and/or move to a category (0 = none). Text is untouched. Returns the new entry."""
+        return self._post(f"/notes/{filename}/rename", {"expected_revision": expected_revision,
+                                                        "new_name": new_name, "category": category})
+
+    def trash(self, filename: str, expected_revision: str) -> dict:
+        """Move a note to the recoverable trash. Returns {trash_id, ...}."""
+        return self._post(f"/notes/{filename}/trash", {"expected_revision": expected_revision})
+
+    def trash_list(self) -> list[dict]:
+        status, payload = self._call("GET", "/trash")
+        if status != 200:
+            self._raise_for(status, payload)
+        return payload.get("trash", [])
+
+    def restore(self, trash_id: str) -> dict:
+        return self._post(f"/trash/{trash_id}/restore", {})
+
+    def purge(self, trash_id: str, authorization: str) -> dict:
+        """Permanently delete one trashed note. ``authorization`` must be notes_library.purge_phrase(trash_id)."""
+        return self._post(f"/trash/{trash_id}/purge", {"authorization": authorization})
+
     def list_notes(self) -> list[str]:
         status, payload = self._call("GET", "/notes")
         if status != 200:
@@ -103,16 +133,26 @@ class NotesBridgeClient:
             self._raise_for(status, payload)
         return payload["note"], payload["revision"]
 
-    def create(self, note: str) -> tuple[str, str]:
-        """Create a new note; the repository assigns the filename. Returns (filename, revision)."""
-        status, payload = self._call("POST", "/notes", {"note": note})
+    def search(self, query: str = "", category: int | None = None) -> list[dict]:
+        """Notes whose name or text contains ``query`` (and/or in a category): entries with revision and matching lines."""
+        params = {k: v for k, v in {"q": query, "category": category}.items() if v not in ("", None)}
+        params.setdefault("detail", "1")
+        status, payload = self._call("GET", "/notes?" + urllib.parse.urlencode(params))
+        if status != 200:
+            self._raise_for(status, payload)
+        return payload.get("entries", [])
+
+    def create(self, note: str, name: str = "", category: int | None = None) -> tuple[str, str]:
+        """Create a new note; the repository dates, slugs and de-duplicates the filename.
+        Returns (filename, revision). A name is required."""
+        status, payload = self._call("POST", "/notes", {"name": name, "note": note, "category": category})
         if status != 200:
             self._raise_for(status, payload)
         return payload["filename"], payload["revision"]
 
-    def create_and_verify(self, note: str) -> tuple[str, str, str]:
+    def create_and_verify(self, note: str, name: str = "", category: int | None = None) -> tuple[str, str, str]:
         """Create, then read back the persisted text: (filename, note_text, revision)."""
-        filename, _ = self.create(note)
+        filename, _ = self.create(note, name, category)
         persisted_note, persisted_revision = self.read(filename)
         return filename, persisted_note, persisted_revision
 

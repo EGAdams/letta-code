@@ -46,12 +46,14 @@ import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import notes_activity
 import notes_docx_export
 import notes_email_draft
 import notes_highlights
+import notes_library
+import notes_review_marks
 from scan_jobs import composition
 from scan_jobs.auth import AuthError
 from voice import note_repository
@@ -61,6 +63,8 @@ _PATH = re.compile(r"^/notes(?:/(?P<filename>[^/]+))?$")
 _EXPORT_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/export\.docx$")
 _EMAIL_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/email-draft$")
 _HIGHLIGHTS_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/highlights$")
+_ACTION_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/(?P<action>rename|trash)$")
+_TRASH_PATH = re.compile(r"^/trash(?:/(?P<trash_id>[^/]+)/(?P<action>restore|purge))?$")
 _TASK = re.compile(r"^t_[0-9a-f]{8,64}$")
 
 
@@ -74,8 +78,28 @@ def protected_path() -> Path:
                 or Path.home() / ".config" / "startrek_notes" / "protected.json")
 
 
+def approves_all() -> bool:
+    """True when the approved list says ``{"all": true}``: every note is reachable by an authorized
+    client, so no filename needs approving one by one. Anything else (missing, unreadable, ``false``)
+    falls back to the per-filename list. Protected notes stay read-only either way."""
+    try:
+        data = json.loads(approved_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("all") is True
+
+
+class _Everything(frozenset):
+    """Stands in for the approved set when every note is approved."""
+
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str) and bool(name)
+
+
 def approved_notes() -> frozenset[str]:
     """The filenames the Bridge may read and update. Fails closed to none."""
+    if approves_all():
+        return _Everything()
     try:
         data = json.loads(approved_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -98,6 +122,97 @@ def _json(code: int, payload: object) -> tuple[int, bytes]:
     return code, json.dumps(payload).encode()
 
 
+def build_library() -> notes_library.NoteLibrary:
+    return notes_library.NoteLibrary()
+
+
+def _category_arg(value: object) -> int | None:
+    try:
+        return int(value) if value not in ("", None) else None
+    except (TypeError, ValueError):
+        raise notes_library.NoteRefused("category must be a number 1-10") from None
+
+
+def _manage(method, parsed, match, action_match, trash_match, filename, body, approved, log, actor):
+    """Create, rename/move, trash, restore, purge, list the trash. Writes are POSTs (notes:write)."""
+    library = build_library()
+    data = {}
+    if method == "POST":
+        data = json.loads(body or b"{}")
+        if not isinstance(data, dict):
+            return _json(400, {"error": "body must be a JSON object"})
+    try:
+        if trash_match and not trash_match.group("action"):
+            if method != "GET":
+                return _json(405, {"error": "method_not_allowed"})
+            items = library.list_trash()
+            log("trash_list", actor=actor, detail=f"{len(items)} item(s)")
+            return _json(200, {"ok": True, "trash": items})
+        if method != "POST":
+            return _json(405, {"error": "method_not_allowed"})
+        if trash_match:
+            action = trash_match.group("action")
+            if action == "restore":
+                done = library.restore(filename)
+                log("restore", actor=actor, revision=done["revision"], detail=f"from {filename}")
+                return _json(200, {"ok": True, **done})
+            auth = data.get("authorization", "")
+            if not isinstance(auth, str):
+                return _json(400, {"error": "authorization must be a string"})
+            done = library.purge(filename, auth)
+            log("purge", actor=actor, revision=done["revision"], detail=f"permanent: {filename}")
+            return _json(200, {"ok": True, **done})
+        if action_match is None:  # POST /notes: create
+            name, text = data.get("name", ""), data.get("note", "")
+            if not isinstance(name, str) or not isinstance(text, str):
+                return _json(400, {"error": "name and note must be strings"})
+            created = library.create(name, text, _category_arg(data.get("category")))
+            log("create", actor=actor, revision=created["revision"], detail=created["filename"])
+            return _json(200, {"ok": True, **created})
+        if filename not in approved:
+            log("not_approved", actor=actor, detail="not on the approved list")
+            return _json(403, {"error": "note_not_approved",
+                               "message": "the Bridge reads and updates approved notes only"})
+        if filename in protected_notes():
+            log("protected", actor=actor, detail=f"{action_match.group('action')} refused: protected")
+            return _json(403, {"error": "note_protected",
+                               "message": "this note is protected; changes are refused "
+                                          "until it is explicitly unprotected"})
+        expected = data.get("expected_revision", "")
+        if not isinstance(expected, str) or not expected:
+            log("refused", actor=actor, detail="change without a revision")
+            return _json(428, {"error": "revision_required",
+                               "message": "read the note first and send its revision"})
+        if action_match.group("action") == "trash":
+            done = library.trash(filename, expected)
+            log("trash", actor=actor, revision=done["revision"], detail=done["trash_id"])
+            return _json(200, {"ok": True, **done})
+        category = data.get("category")
+        done = library.rename(filename, expected, data.get("new_name"),
+                              None if category == 0 else _category_arg(category),
+                              clear_category=category == 0)
+        log("rename", actor=actor, revision=done["revision"], detail=f"-> {done['filename']}")
+        return _json(200, {"ok": True, **done})
+    except notes_library.NoteRefused as exc:
+        log("refused", actor=actor, detail=str(exc)[:120])
+        return _json(400, {"error": "refused", "message": str(exc)})
+    except PermissionError as exc:
+        log("refused", actor=actor, detail="purge without the authorization phrase")
+        return _json(403, {"error": "authorization_required", "message": str(exc)})
+    except FileExistsError:
+        log("conflict", actor=actor, detail=f"{filename} changed since it was read")
+        current = ""
+        try:
+            current = build_library().entry(build_library()._note_path(filename))["revision"]
+        except (OSError, notes_library.NoteRefused):
+            pass
+        return _json(409, {"error": "note_changed", "message": "note changed since it was read",
+                           "filename": filename, "revision": current})
+    except FileNotFoundError:
+        log("error", actor=actor, detail="not found")
+        return _json(404, {"error": "note_not_found"})
+
+
 def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
              body: bytes = b"") -> tuple[int, bytes]:
     """Return ``(status, JSON bytes)`` for one authenticated Bridge request."""
@@ -110,9 +225,12 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
     highlights_match = _HIGHLIGHTS_PATH.match(suffix)
     sub_match = export_match or email_match or highlights_match
     match = None if sub_match else _PATH.match(suffix)
-    if not match and not sub_match:
+    action_match = _ACTION_PATH.match(suffix)
+    trash_match = _TRASH_PATH.match(suffix)
+    if not match and not sub_match and not action_match and not trash_match:
         return _json(404, {"error": "not found"})
-    filename = (match or sub_match).group("filename") or ""
+    filename = ((match or sub_match or action_match).group("filename") if not trash_match else
+                (trash_match.group("trash_id") or "")) or ""
     task = headers.get("x-bridge-task", "")
     task = task if _TASK.match(task) else ""
 
@@ -129,6 +247,9 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
     approved = approved_notes()
     repository = note_repository.build_note_repository()
     try:
+        if action_match or trash_match or (method == "POST" and match and not filename):
+            return _manage(method, parsed, match, action_match, trash_match, filename, body, approved,
+                           log, actor)
         if sub_match:
             if method != "GET":
                 return _json(405, {"error": "method_not_allowed"})
@@ -146,9 +267,11 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
                                    "docx_base64": base64.b64encode(docx_bytes).decode("ascii")})
             if highlights_match:
                 highlights = notes_highlights.highlights_payload(note)
-                log("highlights", actor=actor, revision=revision, detail=f"{len(highlights)} span(s)")
+                marks = notes_review_marks.review_marks(filename, note)
+                log("highlights", actor=actor, revision=revision,
+                    detail=f"{len(highlights)} span(s), {len(marks)} review mark(s)")
                 return _json(200, {"ok": True, "filename": filename, "revision": revision,
-                                   "highlights": highlights})
+                                   "highlights": highlights, "review_marks": marks})
             draft = notes_email_draft.build_email_draft(filename, note)
             log("email_draft", actor=actor, revision=revision)
             return _json(200, {"ok": True, "filename": filename, "revision": revision, **draft})
@@ -156,6 +279,13 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
         if method == "GET" and not filename:
             names = [name for name in repository.list() if name in approved]
             log("list", actor=actor, detail=f"{len(names)} approved note(s)")
+            query = parse_qs(parsed.query)
+            if "q" in query or "category" in query or "detail" in query:
+                wanted = _category_arg(query.get("category", [""])[0])
+                entries = [e for e in build_library().list_all(query.get("q", [""])[0], wanted)
+                           if e["filename"] in approved]
+                return _json(200, {"ok": True, "notes": [e["filename"] for e in entries],
+                                   "entries": entries})
             return _json(200, {"ok": True, "notes": names})
         if not filename or filename not in approved:
             log("not_approved", actor=actor,

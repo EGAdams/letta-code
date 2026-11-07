@@ -90,11 +90,29 @@ def test_read_returns_note_and_revision(live_server, notes_dir, monkeypatch, cap
     assert body["revision"]
 
 
-def test_create_is_refused_and_writes_nothing(live_server, notes_dir, monkeypatch, capsys):
-    returncode, body = _run(monkeypatch, capsys, live_server, ["create"], stdin_text="fresh note")
-    assert returncode == 1
-    assert body["ok"] is False
+def test_create_needs_a_name_then_makes_a_new_note(live_server, notes_dir, monkeypatch, capsys):
+    returncode, body = _run(monkeypatch, capsys, live_server, ["create", "!!!"], stdin_text="fresh note")
+    assert returncode == 1 and body["ok"] is False
     assert sorted(p.name for p in notes_dir.iterdir()) == ["existing.md"]
+
+    returncode, body = _run(monkeypatch, capsys, live_server, ["create", "Fresh Start", "--category", "4"],
+                            stdin_text="fresh note")
+    assert returncode == 0 and body["verified"] is True and "_04-fresh-start" in body["filename"]
+    assert notes_dir.joinpath("existing.md").read_text() == "v1\n"
+
+
+def test_search_trash_and_restore_through_the_cli(live_server, notes_dir, monkeypatch, capsys):
+    _, found = _run(monkeypatch, capsys, live_server, ["search", "v1"])
+    assert [e["filename"] for e in found["entries"]] == ["existing.md"]
+    revision = found["entries"][0]["revision"]
+    code, gone = _run(monkeypatch, capsys, live_server, ["trash", "existing.md", "--expected-revision", revision])
+    assert code == 0 and not notes_dir.joinpath("existing.md").exists()
+    _, listed = _run(monkeypatch, capsys, live_server, ["trash-list"])
+    assert listed["trash"][0]["trash_id"] == gone["trash_id"]
+    code, back = _run(monkeypatch, capsys, live_server, ["restore", gone["trash_id"]])
+    assert code == 0 and notes_dir.joinpath("existing.md").read_text() == "v1\n"
+    code, body = _run(monkeypatch, capsys, live_server, ["purge", gone["trash_id"], "--authorization", "x"])
+    assert code == 1 and body["ok"] is False
 
 
 def test_update_with_correct_revision_succeeds_and_verifies(live_server, notes_dir, monkeypatch, capsys):
