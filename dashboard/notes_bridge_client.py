@@ -92,33 +92,42 @@ class NotesBridgeClient:
         raise NotesBridgeError(message)
 
     def _post(self, path: str, body: dict) -> dict:
-        status, payload = self._call("POST", path, {k: v for k, v in body.items() if v is not None})
+        status, payload = self._call("POST", path, body)
         if status != 200:
             self._raise_for(status, payload)
         return payload
 
-    def rename(self, filename: str, expected_revision: str, new_name: str | None = None,
-               category: int | None = None) -> dict:
-        """Rename and/or move to a category (0 = none). Text is untouched. Returns the new entry."""
-        return self._post(f"/notes/{filename}/rename", {"expected_revision": expected_revision,
-                                                        "new_name": new_name, "category": category})
+    def search(self, query: str = "", category: int | None = None) -> list[dict]:
+        """Notes whose name or text contains ``query`` and/or in a category (1-10, the ``NN-`` filename token):
+        entries with revision and matching lines."""
+        params = {k: v for k, v in {"q": query, "category": category}.items() if v not in ("", None)}
+        params.setdefault("detail", "1")
+        status, payload = self._call("GET", "/notes?" + urllib.parse.urlencode(params))
+        if status != 200:
+            self._raise_for(status, payload)
+        return payload.get("entries", [])
 
-    def trash(self, filename: str, expected_revision: str) -> dict:
-        """Move a note to the recoverable trash. Returns {trash_id, ...}."""
-        return self._post(f"/notes/{filename}/trash", {"expected_revision": expected_revision})
+    def rename(self, filename: str, expected_revision: str, new_filename: str) -> dict:
+        """Rename (a leading ``NN-`` slug token is the category). Returns {filename, previous_filename, revision}."""
+        return self._post(f"/notes/{filename}/rename",
+                          {"new_filename": new_filename, "expected_revision": expected_revision})
 
-    def trash_list(self) -> list[dict]:
+    def delete(self, filename: str, expected_revision: str) -> dict:
+        """Soft delete into the trash. Returns {trashed_as}."""
+        return self._post(f"/notes/{filename}/delete", {"expected_revision": expected_revision})
+
+    def trash_list(self) -> list[str]:
         status, payload = self._call("GET", "/trash")
         if status != 200:
             self._raise_for(status, payload)
         return payload.get("trash", [])
 
-    def restore(self, trash_id: str) -> dict:
-        return self._post(f"/trash/{trash_id}/restore", {})
+    def restore(self, trashed_name: str, filename: str = "") -> dict:
+        return self._post(f"/trash/{trashed_name}/restore", {"filename": filename} if filename else {})
 
-    def purge(self, trash_id: str, authorization: str) -> dict:
-        """Permanently delete one trashed note. ``authorization`` must be notes_library.purge_phrase(trash_id)."""
-        return self._post(f"/trash/{trash_id}/purge", {"authorization": authorization})
+    def purge(self, trashed_name: str, authorization: str) -> dict:
+        """Permanently delete one trashed note; ``authorization`` is notes_bridge_extras.purge_phrase(trashed_name)."""
+        return self._post(f"/trash/{trashed_name}/purge", {"authorization": authorization})
 
     def list_notes(self) -> list[str]:
         status, payload = self._call("GET", "/notes")
@@ -133,26 +142,17 @@ class NotesBridgeClient:
             self._raise_for(status, payload)
         return payload["note"], payload["revision"]
 
-    def search(self, query: str = "", category: int | None = None) -> list[dict]:
-        """Notes whose name or text contains ``query`` (and/or in a category): entries with revision and matching lines."""
-        params = {k: v for k, v in {"q": query, "category": category}.items() if v not in ("", None)}
-        params.setdefault("detail", "1")
-        status, payload = self._call("GET", "/notes?" + urllib.parse.urlencode(params))
-        if status != 200:
-            self._raise_for(status, payload)
-        return payload.get("entries", [])
-
-    def create(self, note: str, name: str = "", category: int | None = None) -> tuple[str, str]:
-        """Create a new note; the repository dates, slugs and de-duplicates the filename.
-        Returns (filename, revision). A name is required."""
-        status, payload = self._call("POST", "/notes", {"name": name, "note": note, "category": category})
+    def create(self, note: str, filename: str = "") -> tuple[str, str]:
+        """Create a new note; the repository dates, slugs and de-duplicates the name hint (a leading ``NN-`` is the
+        category). Returns (filename, revision)."""
+        status, payload = self._call("POST", "/notes", {"note": note, "filename": filename})
         if status != 200:
             self._raise_for(status, payload)
         return payload["filename"], payload["revision"]
 
-    def create_and_verify(self, note: str, name: str = "", category: int | None = None) -> tuple[str, str, str]:
+    def create_and_verify(self, note: str, filename_hint: str = "") -> tuple[str, str, str]:
         """Create, then read back the persisted text: (filename, note_text, revision)."""
-        filename, _ = self.create(note, name, category)
+        filename, _ = self.create(note, filename_hint)
         persisted_note, persisted_revision = self.read(filename)
         return filename, persisted_note, persisted_revision
 

@@ -36,10 +36,12 @@ from urllib.parse import urlparse
 
 import notes_activity
 import notes_bridge_core
+import notes_bridge_extras
 import notes_bridge_notes
 import notes_docx_export
 import notes_email_draft
 import notes_highlights
+import notes_review_marks
 from scan_jobs import composition
 from scan_jobs.auth import AuthError
 from voice import note_repository
@@ -53,6 +55,7 @@ _RENAME_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/rename$")
 _DELETE_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/delete$")
 _TRASH_LIST_PATH = re.compile(r"^/trash$")
 _TRASH_RESTORE_PATH = re.compile(r"^/trash/(?P<filename>[^/]+)/restore$")
+_TRASH_PURGE_PATH = re.compile(r"^/trash/(?P<filename>[^/]+)/purge$")
 _TASK = re.compile(r"^t_[0-9a-f]{8,64}$")
 
 
@@ -111,6 +114,7 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
 
     trash_list_match = _TRASH_LIST_PATH.match(suffix)
     trash_restore_match = _TRASH_RESTORE_PATH.match(suffix)
+    trash_purge_match = _TRASH_PURGE_PATH.match(suffix)
     export_match = _EXPORT_PATH.match(suffix)
     email_match = _EMAIL_PATH.match(suffix)
     highlights_match = _HIGHLIGHTS_PATH.match(suffix)
@@ -118,10 +122,10 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
     delete_match = _DELETE_PATH.match(suffix)
     sub_match = export_match or email_match or highlights_match or rename_match or delete_match
     main_match = None if sub_match else _PATH.match(suffix)
-    any_match = main_match or sub_match or trash_list_match or trash_restore_match
+    any_match = main_match or sub_match or trash_list_match or trash_restore_match or trash_purge_match
     if not any_match:
         return _json(404, {"error": "not found"})
-    named_match = main_match or sub_match or trash_restore_match
+    named_match = main_match or sub_match or trash_restore_match or trash_purge_match
     filename = (named_match.group("filename") or "") if named_match else ""
 
     task_header = headers.get("x-bridge-task", "")
@@ -145,6 +149,13 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
             if method != "GET":
                 return _json(405, {"error": "method_not_allowed"})
             status, payload, event, fields = notes_bridge_notes.list_trash(repository)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if trash_purge_match:
+            if method != "POST":
+                return _json(405, {"error": "method_not_allowed"})
+            status, payload, event, fields = notes_bridge_extras.purge(repository, filename, body)
             log(event, actor=actor, **fields)
             return _json(status, payload)
 
@@ -172,10 +183,11 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
                                    "docx_base64": base64.b64encode(docx_bytes).decode("ascii")})
             if highlights_match:
                 highlights = notes_highlights.highlights_payload(note)
+                marks = notes_review_marks.review_marks(filename, note)
                 log("highlights", filename=filename, actor=actor, revision=revision,
-                    detail=f"{len(highlights)} span(s)")
+                    detail=f"{len(highlights)} span(s), {len(marks)} review mark(s)")
                 return _json(200, {"ok": True, "filename": filename, "revision": revision,
-                                   "highlights": highlights})
+                                   "highlights": highlights, "review_marks": marks})
             draft = notes_email_draft.build_email_draft(filename, note)
             log("email_draft", filename=filename, actor=actor, revision=revision)
             return _json(200, {"ok": True, "filename": filename, "revision": revision, **draft})
@@ -199,6 +211,11 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
                 status, payload, event, fields = notes_bridge_notes.rename(repository, filename, body)
             else:
                 status, payload, event, fields = notes_bridge_notes.delete(repository, filename, body)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if method == "GET" and not filename and notes_bridge_extras.wants_search(parsed.query):
+            status, payload, event, fields = notes_bridge_extras.search(repository, approved, parsed.query)
             log(event, actor=actor, **fields)
             return _json(status, payload)
 
