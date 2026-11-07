@@ -1,43 +1,29 @@
-"""Token-protected agent façade for the dashboard's filesystem notes.
+"""Token-protected agent facade for the dashboard's filesystem notes. Full
+contract and rationale: ``docs/notes.md``.
 
 This is the HTTP contract the Star Trek Bridge worker's ``notes`` agent calls
 (``agent_blocks/lancedb_memory/agent_bridge_worker/adapters/notes_bridge_http.py``);
 ``notes_bridge_client.py`` is the same contract for scripts. Browser routes
 stay separate so their behaviour is unchanged.
 
-Three rules hold here, on the server, whatever the client does:
+This module is only the router: match a route, authenticate
+(``scan_jobs/auth.py``, ``notes:read``/``notes:write``), resolve scope
+(``approved_notes`` -- ``None`` for "every note the repository exposes",
+a ``frozenset`` for the legacy per-filename allowlist, see ``in_scope``)
+and protection (``protected_notes`` -- read-only regardless of scope), call
+the one matching handler, log its outcome via ``notes_activity`` (names and
+revisions only, never note text), return. ``notes_bridge_core.py``
+(list/read/write) and ``notes_bridge_notes.py``
+(create/rename/delete/restore/list-trash) hold the operations themselves,
+both returning the same ``(status, payload, event, log_fields)`` shape so
+this module has one logging call site regardless of which operation ran.
+Every write, rename, or delete carries the revision a prior read returned;
+a stale one is a 409 and nothing changes -- ``create`` has nothing to
+collide with, and ``delete`` is soft (moves the note to ``.trash/``, see
+``voice/note_repository.py``), so ``restore`` can always bring it back.
 
-* **Authorized.** Every call needs a scan-bridge bearer token with
-  ``notes:read`` (GET) or ``notes:write`` (POST) -- ``scan_jobs/auth.py``.
-* **Approved notes only.** A note is reachable only if its filename is listed
-  in ``NOTES_BRIDGE_APPROVED`` (default ``~/.config/startrek_notes/approved.json``,
-  ``{"notes": ["<filename>", ...]}``). A missing or unreadable list approves
-  nothing. The façade never creates a note.
-* **No blind overwrite.** A write carries the revision a read returned; a stale
-  one is a 409 and nothing is written.
-* **Protected notes are read-only here regardless of approval.** A filename
-  in ``NOTES_BRIDGE_PROTECTED`` is still readable and still exportable, but
-  every write to it is refused -- for a note (such as a legal document)
-  whose corrections must be authorized some other way before this façade is
-  allowed to touch it.
-
-Three read-only derivations exist alongside read/write, all logged the same
-way and requiring only ``notes:read``: ``GET .../export.docx`` renders the
-note (Markdown plus the ``{{color:name}}``/``{{highlight:name}}`` spans
-documented in ``notes_formatting``) as a minimal Word document, returned as
-base64 JSON; ``GET .../email-draft`` returns a subject, a plain-text body
-with markup stripped, and a ``mailto:`` link (neither ever sends mail or
-writes a note -- see ``notes_email_draft`` for why no send path exists at
-all); ``GET .../highlights`` returns every persisted ``{{highlight:name}}``
-span -- exact text, color, line, character offsets, and surrounding context,
-all recomputed from the note's current saved text by ``notes_highlights`` so
-nothing here is a stored range that could drift -- which is what the Bridge
-``notes`` agent calls to answer "what is highlighted in this note."
-
-Every outcome -- read, write, conflict, refusal, authorization failure -- is
-recorded by ``notes_activity`` (names and revisions only, never note text) for
-the Worker Activity page. A caller may send ``X-Bridge-Task: t_<hex>`` so its
-events group under its Bridge task.
+A caller may send ``X-Bridge-Task: t_<hex>`` so its events group under its
+Bridge task on the Worker Activity page.
 """
 from __future__ import annotations
 
@@ -46,14 +32,14 @@ import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import notes_activity
+import notes_bridge_core
+import notes_bridge_notes
 import notes_docx_export
 import notes_email_draft
 import notes_highlights
-import notes_library
-import notes_review_marks
 from scan_jobs import composition
 from scan_jobs.auth import AuthError
 from voice import note_repository
@@ -63,8 +49,10 @@ _PATH = re.compile(r"^/notes(?:/(?P<filename>[^/]+))?$")
 _EXPORT_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/export\.docx$")
 _EMAIL_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/email-draft$")
 _HIGHLIGHTS_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/highlights$")
-_ACTION_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/(?P<action>rename|trash)$")
-_TRASH_PATH = re.compile(r"^/trash(?:/(?P<trash_id>[^/]+)/(?P<action>restore|purge))?$")
+_RENAME_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/rename$")
+_DELETE_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/delete$")
+_TRASH_LIST_PATH = re.compile(r"^/trash$")
+_TRASH_RESTORE_PATH = re.compile(r"^/trash/(?P<filename>[^/]+)/restore$")
 _TASK = re.compile(r"^t_[0-9a-f]{8,64}$")
 
 
@@ -78,38 +66,24 @@ def protected_path() -> Path:
                 or Path.home() / ".config" / "startrek_notes" / "protected.json")
 
 
-def approves_all() -> bool:
-    """True when the approved list says ``{"all": true}``: every note is reachable by an authorized
-    client, so no filename needs approving one by one. Anything else (missing, unreadable, ``false``)
-    falls back to the per-filename list. Protected notes stay read-only either way."""
-    try:
-        data = json.loads(approved_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return isinstance(data, dict) and data.get("all") is True
-
-
-class _Everything(frozenset):
-    """Stands in for the approved set when every note is approved."""
-
-    def __contains__(self, name: object) -> bool:
-        return isinstance(name, str) and bool(name)
-
-
-def approved_notes() -> frozenset[str]:
-    """The filenames the Bridge may read and update. Fails closed to none."""
-    if approves_all():
-        return _Everything()
+def approved_notes() -> "frozenset[str] | None":
+    """The notes the Bridge may operate on. ``None`` means every note the
+    repository exposes (``{"all": true}`` in the approved-notes file); a
+    ``frozenset`` is the legacy per-filename allowlist. A missing or
+    unreadable list approves nothing -- fails closed either way."""
     try:
         data = json.loads(approved_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return frozenset()
+    if isinstance(data, dict) and data.get("all") is True:
+        return None
     names = data.get("notes", []) if isinstance(data, dict) else []
     return frozenset(name for name in names if isinstance(name, str) and name)
 
 
 def protected_notes() -> frozenset[str]:
-    """Filenames the Bridge may read but never write. Missing list protects none."""
+    """Filenames the Bridge may read but never write, rename, or delete.
+    Missing list protects none."""
     try:
         data = json.loads(protected_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -118,99 +92,13 @@ def protected_notes() -> frozenset[str]:
     return frozenset(name for name in names if isinstance(name, str) and name)
 
 
+def in_scope(filename: str, approved: "frozenset[str] | None") -> bool:
+    """Whether `filename` is a note the Bridge may operate on under `approved`."""
+    return bool(filename) and (approved is None or filename in approved)
+
+
 def _json(code: int, payload: object) -> tuple[int, bytes]:
     return code, json.dumps(payload).encode()
-
-
-def build_library() -> notes_library.NoteLibrary:
-    return notes_library.NoteLibrary()
-
-
-def _category_arg(value: object) -> int | None:
-    try:
-        return int(value) if value not in ("", None) else None
-    except (TypeError, ValueError):
-        raise notes_library.NoteRefused("category must be a number 1-10") from None
-
-
-def _manage(method, parsed, match, action_match, trash_match, filename, body, approved, log, actor):
-    """Create, rename/move, trash, restore, purge, list the trash. Writes are POSTs (notes:write)."""
-    library = build_library()
-    data = {}
-    if method == "POST":
-        data = json.loads(body or b"{}")
-        if not isinstance(data, dict):
-            return _json(400, {"error": "body must be a JSON object"})
-    try:
-        if trash_match and not trash_match.group("action"):
-            if method != "GET":
-                return _json(405, {"error": "method_not_allowed"})
-            items = library.list_trash()
-            log("trash_list", actor=actor, detail=f"{len(items)} item(s)")
-            return _json(200, {"ok": True, "trash": items})
-        if method != "POST":
-            return _json(405, {"error": "method_not_allowed"})
-        if trash_match:
-            action = trash_match.group("action")
-            if action == "restore":
-                done = library.restore(filename)
-                log("restore", actor=actor, revision=done["revision"], detail=f"from {filename}")
-                return _json(200, {"ok": True, **done})
-            auth = data.get("authorization", "")
-            if not isinstance(auth, str):
-                return _json(400, {"error": "authorization must be a string"})
-            done = library.purge(filename, auth)
-            log("purge", actor=actor, revision=done["revision"], detail=f"permanent: {filename}")
-            return _json(200, {"ok": True, **done})
-        if action_match is None:  # POST /notes: create
-            name, text = data.get("name", ""), data.get("note", "")
-            if not isinstance(name, str) or not isinstance(text, str):
-                return _json(400, {"error": "name and note must be strings"})
-            created = library.create(name, text, _category_arg(data.get("category")))
-            log("create", actor=actor, revision=created["revision"], detail=created["filename"])
-            return _json(200, {"ok": True, **created})
-        if filename not in approved:
-            log("not_approved", actor=actor, detail="not on the approved list")
-            return _json(403, {"error": "note_not_approved",
-                               "message": "the Bridge reads and updates approved notes only"})
-        if filename in protected_notes():
-            log("protected", actor=actor, detail=f"{action_match.group('action')} refused: protected")
-            return _json(403, {"error": "note_protected",
-                               "message": "this note is protected; changes are refused "
-                                          "until it is explicitly unprotected"})
-        expected = data.get("expected_revision", "")
-        if not isinstance(expected, str) or not expected:
-            log("refused", actor=actor, detail="change without a revision")
-            return _json(428, {"error": "revision_required",
-                               "message": "read the note first and send its revision"})
-        if action_match.group("action") == "trash":
-            done = library.trash(filename, expected)
-            log("trash", actor=actor, revision=done["revision"], detail=done["trash_id"])
-            return _json(200, {"ok": True, **done})
-        category = data.get("category")
-        done = library.rename(filename, expected, data.get("new_name"),
-                              None if category == 0 else _category_arg(category),
-                              clear_category=category == 0)
-        log("rename", actor=actor, revision=done["revision"], detail=f"-> {done['filename']}")
-        return _json(200, {"ok": True, **done})
-    except notes_library.NoteRefused as exc:
-        log("refused", actor=actor, detail=str(exc)[:120])
-        return _json(400, {"error": "refused", "message": str(exc)})
-    except PermissionError as exc:
-        log("refused", actor=actor, detail="purge without the authorization phrase")
-        return _json(403, {"error": "authorization_required", "message": str(exc)})
-    except FileExistsError:
-        log("conflict", actor=actor, detail=f"{filename} changed since it was read")
-        current = ""
-        try:
-            current = build_library().entry(build_library()._note_path(filename))["revision"]
-        except (OSError, notes_library.NoteRefused):
-            pass
-        return _json(409, {"error": "note_changed", "message": "note changed since it was read",
-                           "filename": filename, "revision": current})
-    except FileNotFoundError:
-        log("error", actor=actor, detail="not found")
-        return _json(404, {"error": "note_not_found"})
 
 
 def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
@@ -220,21 +108,26 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
     if not parsed.path.startswith(PREFIX):
         return _json(404, {"error": "not found"})
     suffix = parsed.path[len(PREFIX):]
+
+    trash_list_match = _TRASH_LIST_PATH.match(suffix)
+    trash_restore_match = _TRASH_RESTORE_PATH.match(suffix)
     export_match = _EXPORT_PATH.match(suffix)
     email_match = _EMAIL_PATH.match(suffix)
     highlights_match = _HIGHLIGHTS_PATH.match(suffix)
-    sub_match = export_match or email_match or highlights_match
-    match = None if sub_match else _PATH.match(suffix)
-    action_match = _ACTION_PATH.match(suffix)
-    trash_match = _TRASH_PATH.match(suffix)
-    if not match and not sub_match and not action_match and not trash_match:
+    rename_match = _RENAME_PATH.match(suffix)
+    delete_match = _DELETE_PATH.match(suffix)
+    sub_match = export_match or email_match or highlights_match or rename_match or delete_match
+    main_match = None if sub_match else _PATH.match(suffix)
+    any_match = main_match or sub_match or trash_list_match or trash_restore_match
+    if not any_match:
         return _json(404, {"error": "not found"})
-    filename = ((match or sub_match or action_match).group("filename") if not trash_match else
-                (trash_match.group("trash_id") or "")) or ""
-    task = headers.get("x-bridge-task", "")
-    task = task if _TASK.match(task) else ""
+    named_match = main_match or sub_match or trash_restore_match
+    filename = (named_match.group("filename") or "") if named_match else ""
 
-    def log(event: str, **fields: str) -> None:
+    task_header = headers.get("x-bridge-task", "")
+    task = task_header if _TASK.match(task_header) else ""
+
+    def log(event: str, *, filename: str = "", **fields: str) -> None:
         notes_activity.record(event, task_id=task, filename=filename, **fields)
 
     scope = "notes:write" if method == "POST" else "notes:read"
@@ -246,96 +139,105 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
 
     approved = approved_notes()
     repository = note_repository.build_note_repository()
+
     try:
-        if action_match or trash_match or (method == "POST" and match and not filename):
-            return _manage(method, parsed, match, action_match, trash_match, filename, body, approved,
-                           log, actor)
-        if sub_match:
+        if trash_list_match:
             if method != "GET":
                 return _json(405, {"error": "method_not_allowed"})
-            if filename not in approved:
-                log("not_approved", actor=actor, detail="not on the approved list")
+            status, payload, event, fields = notes_bridge_notes.list_trash(repository)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if trash_restore_match:
+            if method != "POST":
+                return _json(405, {"error": "method_not_allowed"})
+            status, payload, event, fields = notes_bridge_notes.restore(repository, filename, body)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if export_match or email_match or highlights_match:
+            if method != "GET":
+                return _json(405, {"error": "method_not_allowed"})
+            if not in_scope(filename, approved):
+                log("not_approved", filename=filename, actor=actor, detail="not on the approved list")
                 return _json(403, {"error": "note_not_approved",
-                                   "message": "the Bridge reads and updates approved notes only"})
+                                   "message": "the Bridge reads and updates in-scope notes only"})
             note = repository.read(filename)
             revision = repository.revision(filename)
             if export_match:
                 docx_bytes = notes_docx_export.build_docx_bytes(note)
-                log("export_docx", actor=actor, revision=revision,
+                log("export_docx", filename=filename, actor=actor, revision=revision,
                     detail=f"{len(docx_bytes)} bytes")
                 return _json(200, {"ok": True, "filename": filename, "revision": revision,
                                    "docx_base64": base64.b64encode(docx_bytes).decode("ascii")})
             if highlights_match:
                 highlights = notes_highlights.highlights_payload(note)
-                marks = notes_review_marks.review_marks(filename, note)
-                log("highlights", actor=actor, revision=revision,
-                    detail=f"{len(highlights)} span(s), {len(marks)} review mark(s)")
+                log("highlights", filename=filename, actor=actor, revision=revision,
+                    detail=f"{len(highlights)} span(s)")
                 return _json(200, {"ok": True, "filename": filename, "revision": revision,
-                                   "highlights": highlights, "review_marks": marks})
+                                   "highlights": highlights})
             draft = notes_email_draft.build_email_draft(filename, note)
-            log("email_draft", actor=actor, revision=revision)
+            log("email_draft", filename=filename, actor=actor, revision=revision)
             return _json(200, {"ok": True, "filename": filename, "revision": revision, **draft})
 
+        if rename_match or delete_match:
+            if method != "POST":
+                return _json(405, {"error": "method_not_allowed"})
+            if not in_scope(filename, approved):
+                log("not_approved", filename=filename, actor=actor, detail="not on the approved list")
+                return _json(403, {"error": "note_not_approved",
+                                   "message": "the Bridge reads and updates in-scope notes only"})
+            if filename in protected_notes():
+                event = "protected"
+                log(event, filename=filename, actor=actor,
+                    detail="rename refused: note is protected" if rename_match
+                    else "delete refused: note is protected")
+                return _json(403, {"error": "note_protected",
+                                   "message": "this note is protected; rename/delete are refused "
+                                              "until it is explicitly unprotected"})
+            if rename_match:
+                status, payload, event, fields = notes_bridge_notes.rename(repository, filename, body)
+            else:
+                status, payload, event, fields = notes_bridge_notes.delete(repository, filename, body)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
         if method == "GET" and not filename:
-            names = [name for name in repository.list() if name in approved]
-            log("list", actor=actor, detail=f"{len(names)} approved note(s)")
-            query = parse_qs(parsed.query)
-            if "q" in query or "category" in query or "detail" in query:
-                wanted = _category_arg(query.get("category", [""])[0])
-                entries = [e for e in build_library().list_all(query.get("q", [""])[0], wanted)
-                           if e["filename"] in approved]
-                return _json(200, {"ok": True, "notes": [e["filename"] for e in entries],
-                                   "entries": entries})
-            return _json(200, {"ok": True, "notes": names})
-        if not filename or filename not in approved:
-            log("not_approved", actor=actor,
-                detail="create is not offered" if not filename else "not on the approved list")
+            status, payload, event, fields = notes_bridge_core.list_notes(repository, approved)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if method == "POST" and not filename:
+            status, payload, event, fields = notes_bridge_notes.create(repository, body)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
+        if not in_scope(filename, approved):
+            log("not_approved", filename=filename, actor=actor, detail="not on the approved list")
             return _json(403, {"error": "note_not_approved",
-                               "message": "the Bridge reads and updates approved notes only"})
+                               "message": "the Bridge reads and updates in-scope notes only"})
+
         if method == "GET":
-            note = repository.read(filename)
-            revision = repository.revision(filename)
-            log("read", actor=actor, revision=revision, detail=f"{len(note.encode())} bytes")
-            return _json(200, {"ok": True, "filename": filename, "note": note,
-                               "revision": revision})
+            status, payload, event, fields = notes_bridge_core.read_note(repository, filename)
+            log(event, actor=actor, **fields)
+            return _json(status, payload)
+
         if method != "POST":
             return _json(405, {"error": "method_not_allowed"})
+
         if filename in protected_notes():
-            log("protected", actor=actor, detail="write refused: note is protected")
+            log("protected", filename=filename, actor=actor, detail="write refused: note is protected")
             return _json(403, {"error": "note_protected",
                                "message": "this note is protected; writes are refused "
                                           "until it is explicitly unprotected"})
-        data = json.loads(body or b"{}")
-        note = data.get("note", "")
-        expected_revision = data.get("expected_revision", "")
-        requested = data.get("filename", filename)
-        if not all(isinstance(value, str) for value in (note, requested, expected_revision)):
-            return _json(400, {"error": "filename, note, and expected_revision must be strings"})
-        if requested != filename:
-            return _json(400, {"error": "filename in the body must match the path"})
-        if not note.strip():
-            return _json(400, {"error": "note must not be blank"})
-        if not expected_revision:
-            log("refused", actor=actor, detail="write without a revision")
-            return _json(428, {"error": "revision_required",
-                               "message": "read the note first and send its revision"})
-        try:
-            revision = repository.write(filename, note, expected_revision)
-        except FileExistsError:
-            current = repository.revision(filename)
-            log("conflict", actor=actor, expected_revision=expected_revision, revision=current)
-            return _json(409, {"error": "note_changed",
-                               "message": "note changed since it was read",
-                               "filename": filename, "revision": current})
-        log("write", actor=actor, expected_revision=expected_revision, revision=revision,
-            detail=f"{len(note.encode())} bytes")
-        return _json(200, {"ok": True, "filename": filename, "revision": revision,
-                           "actor": actor})
+        status, payload, event, fields = notes_bridge_core.write_note(repository, filename, body)
+        log(event, actor=actor, **fields)
+        return _json(status, payload)
     except json.JSONDecodeError:
         return _json(400, {"error": "invalid_json"})
     except FileNotFoundError:
-        log("error", detail="note not found")
+        log("error", filename=filename, detail="note not found")
         return _json(404, {"error": "note_not_found"})
     except (OSError, ValueError) as exc:
-        log("error", detail=type(exc).__name__)
+        log("error", filename=filename, detail=type(exc).__name__)
         return _json(400, {"error": str(exc)})
