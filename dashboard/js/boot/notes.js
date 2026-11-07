@@ -181,7 +181,17 @@ function deedReviewKind(line) {
     )
   )
     return "tax-language";
-  return "";
+  // Any other open placeholder (grantee, dates, notary, exceptions...) still needs a person -- except the
+  // draft banner, which merely explains what brackets mean.
+  if (/items in \[brackets\]/i.test(line)) return "";
+  // Signing-day blanks such as "Dated: [____]" are filled by hand at signing, not review items.
+  if (
+    !/not\s+verified|\bverify\b|\[[^\]\n]*[A-Za-z][^\]\n]*\]/i.test(
+      line.replace(/\[_*[A-Z]*_*\]/g, ""),
+    )
+  )
+    return "";
+  return "open-item";
 }
 
 function renderReviewedLine(line, reviewEnabled) {

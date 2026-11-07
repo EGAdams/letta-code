@@ -21,7 +21,7 @@ describe("deed review marks follow what is still unresolved", () => {
     expect(html).toMatch(
       /<mark class="notes-highlight-yellow notes-deed-review-preparer">Prepared by: \[NOT VERIFIED\]<\/mark>/,
     );
-    expect(marks(html)).toBe(1);
+    expect(marks(html)).toBe(2); // the open Drafted by line is marked too
   });
 
   test("finished tax-parcel and legal-description lines lose the mark; bracketed ones keep it", () => {
@@ -51,6 +51,20 @@ describe("deed review marks follow what is still unresolved", () => {
         }),
       ),
     ).toBe(0);
+  });
+
+  test("any other open placeholder is marked, banner text and signing blanks are not", () => {
+    const html = markdownHtml(
+      [
+        "# Personal Representative's Deed of Distribution",
+        "conveys and distributes to [GRANTEE NAME(S) — NOT VERIFIED], whose address is [GRANTEE ADDRESS — NOT VERIFIED], Grantee,",
+        "Items in [BRACKETS] are not verified and must be filled in.",
+        "[VERIFY: the names match]",
+      ].join("\n"),
+      { filename: DEED },
+    );
+    expect(marks(html)).toBe(2);
+    expect(html).toContain("notes-deed-review-open-item");
   });
 
   test("another note is never marked", () => {
