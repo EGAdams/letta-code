@@ -630,6 +630,8 @@ def debug_state():
         'div[contenteditable="true"][data-placeholder]',
         'textarea[data-testid="prompt-textarea"]',
         '[data-message-author-role]',
+        '[data-content-search-unit-key]',
+        '[data-conversation-role]',
     ]
     windows = []
 
@@ -748,9 +750,8 @@ def get_response():
     last_changed_at = time.time()
 
     while time.time() < deadline:
-        messages = d.find_elements(By.CSS_SELECTOR, '[data-message-author-role="assistant"]')
-        for msg in reversed(messages):
-            text = (msg.text or "").strip()
+        messages = [turn["text"] for turn in collect_thread(d) if turn["role"] == "assistant"]
+        for text in reversed(messages):
             if text:
                 if text != last_text:
                     last_text = text
@@ -760,6 +761,74 @@ def get_response():
                 break
         time.sleep(1)
     return jsonify({"response": last_text})
+
+# ChatGPT has moved the attribute that says who said a turn at least twice. Each reader below finds the
+# turn elements and reads a role off them a different way; the first one that finds anything wins, so a
+# UI revert costs nothing and a future move is one more entry. Tested against the January-2026 UI, where
+# [data-message-author-role] is gone entirely -- 0 elements on a thread with turns visible on screen,
+# which is why the relay could type and send but never read a reply.
+THREAD_SCRIPT = r"""
+(() => {
+  const label = /^\s*(You|ChatGPT) said:\s*/i;
+  const clean = (text) => {
+    text = (text || '').replace(label, '').trim();
+    const half = text.length / 2;            // the user's bubble renders a hidden duplicate for editing
+    if (text.length && text.length % 2 === 0 && text.slice(0, half) === text.slice(half))
+      text = text.slice(0, half).trim();
+    return text;
+  };
+  const readers = [
+    // The original: a role attribute on the bubble itself.
+    () => [...document.querySelectorAll('[data-message-author-role]')]
+            .map(el => ({role: el.getAttribute('data-message-author-role'), text: el.innerText})),
+    // The current UI: one attribute carrying turn order and role, e.g. "fallback-turn-0:2:assistant".
+    () => [...document.querySelectorAll('[data-content-search-unit-key]')]
+            .map(el => ({role: (el.getAttribute('data-content-search-unit-key') || '').split(':').pop(),
+                         text: el.innerText})),
+    // Same UI, the accessible route: the sr-only "You said:" / "ChatGPT said:" wrapper. Its own text is
+    // just that label, so the turn body is read from its parent.
+    () => [...document.querySelectorAll('[data-conversation-role]')]
+            .map(el => ({role: el.getAttribute('data-conversation-role'),
+                         text: (el.parentElement || el).innerText})),
+  ];
+  for (const read of readers) {
+    let turns = [];
+    try { turns = read(); } catch (e) { continue; }
+    turns = turns.filter(t => (t.role === 'user' || t.role === 'assistant') && clean(t.text))
+                 .map((t, i) => ({role: t.role, turn_id: String(i + 1), text: clean(t.text)}));
+    if (turns.length) return turns;
+  }
+  return [];
+})()
+"""
+
+
+def collect_thread(d, errors=None):
+    """Every turn on screen, as [{"role", "turn_id", "text"}]. One round trip, because a thread walked
+    element by element through WebDriver changes under the read while a reply is still streaming.
+
+    A failure here used to be indistinguishable from an empty conversation, and that cost an afternoon:
+    the reader was broken while /read_thread kept answering `{"thread": [], "turn_count": 0}` as if the
+    thread really were empty. `errors` is appended to so a caller can say which it was.
+    """
+    try:
+        # .strip() is load-bearing: the script literal starts on its own line, and `return` followed by a
+        # newline is a bare `return;` to JavaScript -- automatic semicolon insertion -- so the reader
+        # answered null every time while looking perfectly correct.
+        turns = d.execute_script("return " + THREAD_SCRIPT.strip())
+    except WebDriverException as exc:
+        if errors is not None:
+            errors.append("%s: %s" % (type(exc).__name__, str(exc)[:300]))
+        return []
+    if turns is None and errors is not None:
+        errors.append("the reader script returned null")
+    out = []
+    for turn in turns or []:
+        if isinstance(turn, dict) and turn.get("role") in ("user", "assistant") and turn.get("text"):
+            out.append({"role": str(turn["role"]), "turn_id": str(turn.get("turn_id") or len(out) + 1),
+                        "text": str(turn["text"]).strip()})
+    return out
+
 
 @app.route('/read_thread', methods=['GET'])
 def read_thread():
@@ -771,24 +840,26 @@ def read_thread():
     d = get_driver()
     ensure_chatgpt_page(d)
 
-    thread = []
-    bubbles = d.find_elements(By.CSS_SELECTOR, '[data-message-author-role]')
-    for idx, bubble in enumerate(bubbles, start=1):
-        role = (bubble.get_attribute('data-message-author-role') or '').strip()
-        text = (bubble.text or '').strip()
-        if role in ('user', 'assistant') and text:
-            thread.append({
-                "role": role,
-                "turn_id": str(idx),
-                "text": text,
-            })
+    errors = []
+    thread = collect_thread(d, errors)
 
     # Support ?last=N to fetch only the most recent N turns
     last_n = request.args.get('last', type=int)
     if last_n:
         thread = thread[-last_n:]
 
-    return jsonify({"thread": thread, "turn_count": len(thread)})
+    answer = {"thread": thread, "turn_count": len(thread)}
+    if not thread:
+        # An empty answer is ambiguous -- a genuinely empty conversation reads the same as a reader that
+        # cannot see one -- so an empty answer says which, and the counts say whether the turns are there.
+        answer["diagnosis"] = {
+            "errors": errors,
+            "url": d.current_url,
+            "counts": {s: len(d.find_elements(By.CSS_SELECTOR, s)) for s in
+                       ('[data-message-author-role]', '[data-content-search-unit-key]',
+                        '[data-conversation-role]')},
+        }
+    return jsonify(answer)
 
 @app.route('/screenshot', methods=['GET'])
 def screenshot():
