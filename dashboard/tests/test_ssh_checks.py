@@ -168,6 +168,23 @@ def test_ssh_test_without_any_identity_file_runs_a_plain_probe(monkeypatch):
     assert '-i' not in calls[0]
 
 
+def test_ssh_test_passes_a_configured_port_and_omits_it_otherwise(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, 'CONNECTED\nTESTBOX\n', '')
+    monkeypatch.setattr(ssh_checks.subprocess, 'run', fake_run)
+    ssh_checks.ssh_test(_cfg(port=2222), timeout=5)
+    ssh_checks.ssh_test(_cfg(), timeout=5)
+    assert calls[0][calls[0].index('-p') + 1] == '2222'
+    assert '-p' not in calls[1]
+
+
+def test_live_win11_box_is_dialled_on_2222_because_windows_owns_22():
+    assert ssh_checks.get_ssh_connection('win11')['port'] == 2222
+
+
 def test_ssh_test_reports_a_timeout_as_a_failure_not_an_exception(monkeypatch):
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd='ssh', timeout=5)

@@ -86,6 +86,10 @@ SSH_CONNECTIONS = [
         'name': 'Win11 (Lettabot/Dashboard)',
         'host': '100.102.209.100',
         'user': 'adamsl',
+        # WSL here runs networkingMode=mirrored, so Windows' own sshd keeps :22
+        # and Linux sshd listens on :2222 (IPv4 + IPv6, see ssh.socket.d/port.conf
+        # on that box). Dialling :22 gets "Connection refused" from Windows.
+        'port': 2222,
         'note': 'Lettabot + the live dashboard deployment. Was 100.72.158.63 '
                 '(desktop-2obsqmc-24, the Ubuntu-24.04 stub) until that node went '
                 'offline on 2026-08-05 — Ubuntu-26.04 (the real live distro) now '
@@ -151,10 +155,12 @@ def get_ssh_connection(key):
     return None
 
 
-def _ssh_test_once(target, timeout, identity_file=None):
+def _ssh_test_once(target, timeout, identity_file=None, port=None):
     """One `ssh ... echo CONNECTED` round trip, optionally pinned to identity_file."""
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
            '-o', 'StrictHostKeyChecking=accept-new']
+    if port:
+        cmd.extend(['-p', str(port)])
     if identity_file:
         cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
     cmd.extend([target, 'echo CONNECTED && hostname'])
@@ -192,11 +198,12 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         os.path.expanduser(f) for f in identity_files
         if f and os.path.isfile(os.path.expanduser(f))
     ]
+    port = cfg.get('port')
     if not candidates:
-        return _ssh_test_once(target, timeout)
+        return _ssh_test_once(target, timeout, port=port)
     last = None
     for identity_file in candidates:
-        last = _ssh_test_once(target, timeout, identity_file)
+        last = _ssh_test_once(target, timeout, identity_file, port=port)
         if last['ok']:
             return last
     return last
