@@ -21,6 +21,7 @@ import zipfile
 from xml.sax.saxutils import escape
 
 import notes_formatting
+import notes_review_focus
 
 _HEADING = re.compile(r"^(#{1,4})\s+(.*)$")
 _BULLET = re.compile(r"^[-*]\s+(.*)$")
@@ -103,6 +104,8 @@ def _paragraph_xml(text: str, style: str | None = None) -> str:
 def _body_xml(note_text: str) -> str:
     paragraphs = []
     for line in note_text.splitlines() or [""]:
+        if notes_review_focus.is_marker_line(line):
+            continue
         heading = _HEADING.match(line)
         bullet = _BULLET.match(line)
         if not line.strip():

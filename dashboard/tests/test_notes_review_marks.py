@@ -42,6 +42,14 @@ def test_marks_carry_line_kind_and_text():
     assert 13 not in found  # inside a mermaid block
 
 
+def test_focus_marker_is_metadata_not_a_review_mark():
+    source = "\n".join([
+        "# Personal Representative's Deed of Distribution",
+        "<!-- notes-review-focus: [VERIFY: metadata only] -->",
+    ])
+    assert marks.review_marks(DEED, source) == []
+
+
 @pytest.mark.skipif(shutil.which("bun") is None, reason="bun is needed to run the browser's own rule")
 def test_python_port_agrees_with_the_browsers_rule():
     root = Path(__file__).resolve().parents[1]

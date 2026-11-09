@@ -10,6 +10,7 @@ export function bindMainNav({
   viewNav,
   AM,
   SM,
+  SVC,
   SSHM,
   MS,
   PCM,
@@ -150,6 +151,11 @@ export function bindMainNav({
         if (target !== "worker-activity" && target !== "poll-settings")
           WKR?.stop?.();
         viewNav.setActive(nav.status, '[data-nav="status"][data-target]', tab);
+
+        if (target === "service-management") {
+          SVC.open();
+          return;
+        }
 
         if (target === "server-management") {
           nav.status.classList.add("hidden");

@@ -127,6 +127,7 @@ export function createViewNavigator({ doc = document, nav }) {
     if (!systemTab) return;
     const children = [
       "btn-server-mgmt",
+      "btn-service-mgmt",
       "btn-ssh-connections",
       "btn-model-stats",
       "btn-pc-monitor",
@@ -147,7 +148,7 @@ export function createViewNavigator({ doc = document, nav }) {
         tab.classList.contains("tab-alert"),
     );
     const allKnown =
-      children.length === 6 &&
+      children.length === 7 &&
       children.every((tab) =>
         ["server-up", "server-concern", "server-down", "server-starting"].some(
           (name) => tab.classList.contains(name),

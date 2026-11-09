@@ -113,11 +113,55 @@ const SPAN_COLOR_NAMES = new Set([
 ]);
 const SPAN_RE = /\{\{(color|highlight):([a-z]+)\}\}([\s\S]*?)\{\{\/\1\}\}/g;
 
-/** **bold** and `code` only, same as before — applied to text outside any color/highlight span. */
+// Only an absolute http(s) URL may become a link — javascript:, data:, file:,
+// a relative path, or any other scheme stays as plain Markdown source text
+// rather than being guessed into a link, matching this file's other
+// "unresolved markup renders as itself" rules (SPAN_RE, deedReviewKind).
+const LINK_RE = /\[([^\]\n]*)\]\((https?:\/\/[^\s()<>]+)\)/gi;
+
+function renderLink(label, href) {
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+/** **bold** only — applied to text outside any link, same "kept simple" rule as color/highlight spans. */
+function renderBold(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+/** [label](http(s)://...) -> <a>; **bold** still applies to the text around/between links. */
+function renderLinks(text) {
+  let html = "",
+    pos = 0,
+    match;
+  // biome-ignore lint/suspicious/noAssignInExpressions: the standard regex-exec loop
+  while ((match = LINK_RE.exec(text))) {
+    if (match.index > pos) html += renderBold(text.slice(pos, match.index));
+    html += renderLink(match[1], match[2]);
+    pos = LINK_RE.lastIndex;
+  }
+  if (pos < text.length) html += renderBold(text.slice(pos));
+  return html;
+}
+
+/**
+ * **bold**, `code`, and [label](http(s)://...) links, same as before plus
+ * links — applied to text outside any color/highlight span. A link is never
+ * recognized inside `code` (code is extracted first, raw, below) — a source
+ * link an agent pastes into a code block stays plain text, not an anchor.
+ */
 function renderMarkdownInline(text) {
-  return escapeHtml(text)
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
+  let html = "",
+    pos = 0,
+    match;
+  const CODE_RE = /`([^`]+)`/g;
+  // biome-ignore lint/suspicious/noAssignInExpressions: the standard regex-exec loop
+  while ((match = CODE_RE.exec(text))) {
+    if (match.index > pos) html += renderLinks(text.slice(pos, match.index));
+    html += `<code>${escapeHtml(match[1])}</code>`;
+    pos = CODE_RE.lastIndex;
+  }
+  if (pos < text.length) html += renderLinks(text.slice(pos));
+  return html;
 }
 
 /**
@@ -127,7 +171,7 @@ function renderMarkdownInline(text) {
  * inner text does not get **bold** or `code` applied — same "kept simple on
  * purpose" rule as the Python parser — only the text outside spans does.
  */
-function renderInlineSpans(text) {
+function renderInlineSpans(text, activeYellowHighlight = false) {
   let html = "",
     pos = 0,
     match;
@@ -137,12 +181,30 @@ function renderInlineSpans(text) {
       html += renderMarkdownInline(text.slice(pos, match.index));
     const [full, kind, name, inner] = match;
     html += SPAN_COLOR_NAMES.has(name)
-      ? `<${kind === "highlight" ? "mark" : "span"} class="notes-${kind}-${name}">${escapeHtml(inner)}</${kind === "highlight" ? "mark" : "span"}>`
+      ? `<${kind === "highlight" ? "mark" : "span"} class="notes-${kind}-${name}${activeYellowHighlight && kind === "highlight" && name === "yellow" ? " notes-deed-review-active-line" : ""}">${escapeHtml(inner)}</${kind === "highlight" ? "mark" : "span"}>`
       : escapeHtml(full);
     pos = SPAN_RE.lastIndex;
   }
   if (pos < text.length) html += renderMarkdownInline(text.slice(pos));
   return html;
+}
+
+function hasSelectedYellowHighlight(line, target) {
+  if (!target) return false;
+  const match = line.match(
+    /\{\{highlight:yellow\}\}([\s\S]*?)\{\{\/highlight\}\}/i,
+  );
+  return !!match && (match[1] === target || line === target);
+}
+
+function hasUniqueExplicitFocus(lines, focus) {
+  if (!focus.explicit || !focus.target) return !focus.explicit;
+  return (
+    lines.filter(
+      (line) =>
+        line === focus.target || hasSelectedYellowHighlight(line, focus.target),
+    ).length === 1
+  );
 }
 
 // Review marks are deliberately a view concern.  They are only enabled for a
@@ -194,9 +256,49 @@ function deedReviewKind(line) {
   return "open-item";
 }
 
-function renderReviewedLine(line, reviewEnabled) {
-  const rendered = renderInlineSpans(line);
+// One bracketed paragraph that tells the reader to verify with an attorney or the probate court. It may open
+// with another label ("[PARTIALLY VERIFIED: ...") and hold markdown links, whose brackets nest inside it.
+const ACTIVE_ATTORNEY_WARNING_RE =
+  /^\s*\[.*\bVERIFY WITH\b.*\b(?:ATTORNEY|PROBATE COURT)\b.*\]\s*$/i;
+const REVIEW_FOCUS_RE = /^\s*<!--\s*notes-review-focus:\s*(.*?)\s*-->\s*$/i;
+
+function reviewFocus(source) {
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(REVIEW_FOCUS_RE);
+    if (match) return { target: match[1].trim(), explicit: true };
+  }
+  return { target: null, explicit: false };
+}
+
+function isActiveAttorneyWarning(line, sectionHeading) {
+  return (
+    /authority\s+of\s+the\s+personal\s+representative/i.test(sectionHeading) &&
+    ACTIVE_ATTORNEY_WARNING_RE.test(line)
+  );
+}
+
+function renderReviewedLine(
+  line,
+  reviewEnabled,
+  sectionHeading = "",
+  focus = { target: null, explicit: false, explicitFocusIsUnique: true },
+) {
+  const selectedYellowHighlight =
+    focus.explicitFocusIsUnique &&
+    focus.explicit &&
+    hasSelectedYellowHighlight(line, focus.target);
+  const rendered = renderInlineSpans(line, selectedYellowHighlight);
   const kind = reviewEnabled ? deedReviewKind(line) : "";
+  const activeWarning =
+    kind &&
+    !selectedYellowHighlight &&
+    focus.explicitFocusIsUnique &&
+    (focus.explicit
+      ? !!focus.target && line === focus.target
+      : isActiveAttorneyWarning(line, sectionHeading));
+  if (activeWarning)
+    return `<span class="notes-deed-review-active-line">${rendered}</span>`;
+  if (selectedYellowHighlight) return rendered;
   return kind
     ? `<mark class="notes-highlight-yellow notes-deed-review-${kind}">${rendered}</mark>`
     : rendered;
@@ -204,10 +306,13 @@ function renderReviewedLine(line, reviewEnabled) {
 
 export function markdownHtml(source, { filename = "" } = {}) {
   const reviewEnabled = isPersonalRepresentativeDeed(filename, source);
+  const focus = reviewFocus(source);
   const lines = source.split(/\r?\n/);
+  const explicitFocusIsUnique = hasUniqueExplicitFocus(lines, focus);
   let html = "",
     list = false,
-    mermaid = [];
+    mermaid = [],
+    sectionHeading = "";
   const closeList = () => {
     if (list) {
       html += "</ul>";
@@ -228,6 +333,7 @@ export function markdownHtml(source, { filename = "" } = {}) {
       mermaid[mermaid.length - 1].push(line);
       continue;
     }
+    if (REVIEW_FOCUS_RE.test(line)) continue;
     if (!line.trim()) {
       closeList();
       continue;
@@ -235,7 +341,8 @@ export function markdownHtml(source, { filename = "" } = {}) {
     const heading = line.match(/^(#{1,4})\s+(.*)$/);
     if (heading) {
       closeList();
-      html += `<h${heading[1].length}>${renderReviewedLine(heading[2], reviewEnabled)}</h${heading[1].length}>`;
+      sectionHeading = heading[2];
+      html += `<h${heading[1].length}>${renderReviewedLine(heading[2], reviewEnabled, sectionHeading, { ...focus, explicitFocusIsUnique })}</h${heading[1].length}>`;
       continue;
     }
     const item = line.match(/^[-*]\s+(.*)$/);
@@ -244,11 +351,11 @@ export function markdownHtml(source, { filename = "" } = {}) {
         html += "<ul>";
         list = true;
       }
-      html += `<li>${renderReviewedLine(item[1], reviewEnabled)}</li>`;
+      html += `<li>${renderReviewedLine(item[1], reviewEnabled, sectionHeading, { ...focus, explicitFocusIsUnique })}</li>`;
       continue;
     }
     closeList();
-    html += `<p>${renderReviewedLine(line, reviewEnabled)}</p>`;
+    html += `<p>${renderReviewedLine(line, reviewEnabled, sectionHeading, { ...focus, explicitFocusIsUnique })}</p>`;
   }
   closeList();
   return html;

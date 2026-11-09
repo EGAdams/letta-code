@@ -21,6 +21,7 @@ Subcommands:
     email-draft <filename>                        -> {"ok": true, "filename", "subject",
                                                        "body_text", "mailto_url"}
     highlights <filename>                         -> {"ok": true, "filename", "highlights", "review_marks"}
+    active-warning <filename>                     -> {"ok": true, "filename", "active_warning"}
     search [query] [--category N]                 -> {"ok": true, "entries": [...]}
     rename <filename> <new-filename> --expected-revision REV
     delete <filename> --expected-revision REV     -> {"ok": true, "trashed_as"}   (recoverable)
@@ -39,6 +40,16 @@ drift from it across a save/reopen. It never reports the Personal
 Representative's Deed page's view-only "review" marks (js/boot/notes.js),
 which are not saved markup, and has no way to see a browser's current
 unsaved text selection.
+
+`active-warning` is also read-only: it returns the single line, if any, the
+Notes page is currently rendering with a *blinking* background on the
+Personal Representative's Deed page (``.notes-deed-review-active-line`` in
+js/boot/notes.js) -- the bracketed "VERIFY WITH ... ATTORNEY/PROBATE COURT"
+sentence inside the "Authority of the Personal Representative" section, if
+the note currently has one. This is never one of the static `review_marks`
+entries `highlights` returns alongside it; a line is either the one active
+passage or an ordinary static mark, never both, and most notes have neither.
+`active_warning` is `null` when no such line exists right now, not a guess.
 
 `create` always assigns a new filename (the repository never overwrites an
 existing note that way); `update` and `remove-text` both require
@@ -130,6 +141,10 @@ def _cmd_highlights(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> 
     return {"ok": True, "filename": args.filename, "highlights": highlights}
 
 
+def _cmd_active_warning(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
+    return {"ok": True, "filename": args.filename, "active_warning": client.active_warning(args.filename)}
+
+
 def _cmd_search(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
     return {"ok": True, "entries": client.search(args.query, args.category)}
 
@@ -169,6 +184,7 @@ _HANDLERS = {
     "export-docx": _cmd_export_docx,
     "email-draft": _cmd_email_draft,
     "highlights": _cmd_highlights,
+    "active-warning": _cmd_active_warning,
 }
 
 
@@ -202,6 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
     highlights_parser = subparsers.add_parser(
         "highlights", help="List persisted {{highlight:name}} spans in one note. Read-only.")
     highlights_parser.add_argument("filename")
+
+    active_warning_parser = subparsers.add_parser(
+        "active-warning",
+        help="The one line currently blinking on the deed page, if any. Read-only.")
+    active_warning_parser.add_argument("filename")
 
     search_parser = subparsers.add_parser("search", help="Find notes by name or text, or by category.")
     search_parser.add_argument("query", nargs="?", default="")

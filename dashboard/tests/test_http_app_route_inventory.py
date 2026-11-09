@@ -21,6 +21,7 @@ from tests.http_app_harness import DashboardClient, ServiceRecorder, start_serve
 # deleted by mistake.
 # --------------------------------------------------------------------------
 GET_ROUTES = [
+    '/api/service-management',
     '/add_expense.html', '/api/adw-prompt',
     '/api/agent-activity', '/api/agent-card', '/api/agent-context', '/api/agent-health',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',

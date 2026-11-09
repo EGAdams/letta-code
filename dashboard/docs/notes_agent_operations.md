@@ -13,7 +13,7 @@ authorized client, so no filename needs approving one by one. Without it only th
 |---|---|---|---|
 | `list` / `search` | inspect | optional `query`, `category` (1-10) | `GET /notes[?q=&category=]` |
 | `read` | inspect | `id` | `GET /notes/<f>` |
-| `highlights` | inspect | `id` -- saved `{{highlight}}` spans *and* the deed's review marks | `GET /notes/<f>/highlights` |
+| `highlights` | inspect | `id` -- saved `{{highlight}}` spans, the deed's static review marks, *and* its one active/blinking warning line (if any) | `GET /notes/<f>/highlights` |
 | `refresh` | inspect | `id`, `known_revision` -- has it changed elsewhere? returns the new text only if so | `GET /notes/<f>` |
 | `trash_list` | inspect | | `GET /trash` |
 | `update` | implement | `id`, `expected_revision`, `edits` (each ONE of `find` / `line` / `section` / `append`, + `replace`) or `text` | `POST /notes/<f>` |
@@ -36,6 +36,15 @@ authorized client, so no filename needs approving one by one. Without it only th
   computed by `notes_review_marks.py`, a port of the browser rule that `tests/test_notes_review_marks.py` runs against
   the browser's own code so the two cannot drift. Clearing one is an ordinary edit that resolves its text; the page drops
   the mark on its next 3 s poll, no reload.
+* **The one active (blinking) line is not a review mark.** Exactly one kind of line gets a *blinking*
+  background instead of a static mark: a bracketed "...VERIFY WITH ... ATTORNEY/PROBATE COURT..." sentence, but only
+  inside the "Authority of the Personal Representative" section (`.notes-deed-review-active-line` in
+  `css/dashboard.css` / `js/boot/notes.js` `isActiveAttorneyWarning`). `highlights` reports it as `active_warning`:
+  `{"line", "text"}`, or `null` when the note currently has none -- computed by `notes_active_warning.py`
+  (`tests/test_notes_active_warning.py` cross-checks it against the browser's code the same way). It is never also
+  counted in `review_marks`: the browser renders a line as either the active span or a static mark, never both, so the
+  façade drops that line from `review_marks` to match. Ten possible static categories and one possible active line are
+  different questions -- the count of `review_marks` is never an answer to "what is blinking right now."
 * **Every change is verified.** After a write the agent reads the note back through the interface and through the
   dashboard's own `GET /api/notes`; `highlight` also checks that `/highlights` reports the spans. It succeeds only if all
   agree. A stale `expected_revision` is a conflict and nothing is written.
@@ -44,3 +53,10 @@ authorized client, so no filename needs approving one by one. Without it only th
 * **Watching it live.** `adws/adw_notes_highlight_watch.py` opens the Notes page in headless Chrome
   (selenium-headless `WebBrowserManager(headless=True)`) and, with `--until-clear TEXT`, waits without reloading for
   the page's own poll to drop the highlight on that text.
+When a single persisted passage must blink, include exactly one standalone
+HTML comment marker: `<!-- notes-review-focus: exact paragraph text -->`. The
+text must match one rendered paragraph exactly; the marker is metadata and is
+not part of the note's visible content or review marks. A missing or repeated
+target intentionally produces no active pulse, so remove or correct the marker
+before retrying. Without a valid marker, the legacy Authority-section warning
+rule is used.

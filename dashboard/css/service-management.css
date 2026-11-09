@@ -1,0 +1,9 @@
+.service-management-facts {
+  display: grid;
+  grid-template-columns: minmax(125px, 190px) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 20px 0;
+}
+.service-management-facts dt { font-weight: bold; }
+.service-management-facts dd { margin: 0; overflow-wrap: anywhere; }
+#service-management-tabs { display: contents; }

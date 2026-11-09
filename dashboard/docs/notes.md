@@ -50,16 +50,13 @@ existing scan-bridge client file and bearer-token mechanism
 whose SHA-256 is in `SCAN_BRIDGE_CONFIG_DIR/clients.json`, and scope
 `notes:read` (GET) or `notes:write` (POST). On top of that:
 
-- **Which notes.** With `{"all": true}` in `NOTES_BRIDGE_APPROVED`
-  (`~/.config/startrek_notes/approved.json`) every note is reachable by an authorized client, so no filename
-  needs approving one by one; that is how ChatGPT and Toyota run on the live box. Without it the file is the
-  per-filename list `{"notes": ["<filename>", ...]}` and only those names are reachable; a missing or
-  unreadable file approves nothing. `all` must be the JSON `true` -- any other value is not "all".
-- **Protected notes** (`NOTES_BRIDGE_PROTECTED`, default `~/.config/startrek_notes/protected.json`) stay
-  readable but every write, rename or trash of them is refused, in either mode. This is the lock for a note
-  (the deed) whose corrections must be authorized some other way.
-- **Create is allowed, overwrite is not.** `POST /notes` makes a new dated file and never replaces one; a name
-  clash gets `-2`, `-3`. Nothing here deletes bytes except `purge`, below.
+- **Approved notes only.** A note is reachable only if its filename is in
+  `NOTES_BRIDGE_APPROVED` (default `~/.config/startrek_notes/approved.json`,
+  `{"notes": ["<filename>", ...]}`). A missing or unreadable list approves
+  nothing. Add a filename there to let ChatGPT edit that note; nothing else
+  changes.
+- **No create.** The façade reads and updates existing approved notes; it
+  never makes a new file, so there is no duplicate copy to drift.
 - **No blind overwrite.** Every write carries the revision a read returned
   (the sha256 of the file bytes, the same value `/api/notes` gives the
   browser). A missing revision is a 428, a stale one a 409 with the current
@@ -67,43 +64,42 @@ whose SHA-256 is in `SCAN_BRIDGE_CONFIG_DIR/clients.json`, and scope
 
 Calls:
 
-- `GET /api/notes-bridge/v1/notes` — notes the Bridge may reach. `?q=text` searches names and bodies (matching lines
-  returned), `?category=N` filters (1-10, the `NN-` token of the filename); either adds `entries` with revisions.
-- `POST /api/notes-bridge/v1/notes` with `{"name", "note", "category"?}` — create (`notes_library.py`); `{filename, revision}`
-- `POST .../notes/<filename>/rename` with `{"expected_revision", "new_name"?, "category"?}` — rename and/or move to a
-  category (`0` = no category). The date prefix and the text are untouched; an existing name is refused.
-- `POST .../notes/<filename>/trash` with `{"expected_revision"}` — move to `NOTES_DIR/.trash/` (a dot-directory the
-  browser list never shows); returns `trash_id`. Recoverable.
-- `GET .../trash` — what is in the trash. `POST .../trash/<trash_id>/restore` — put it back (never over a reused name:
-  it becomes `...-restored.md`).
-- `POST .../trash/<trash_id>/purge` with `{"authorization": "EG authorizes permanently deleting <trash_id>"}` — the
-  only call that removes bytes. Only from the trash, only with that exact sentence (`notes_library.purge_phrase`);
-  anything else is a 403 and nothing is deleted.
+- `GET /api/notes-bridge/v1/notes` — approved notes that exist
 - `GET /api/notes-bridge/v1/notes/<filename>` — `{note, revision}`
 - `POST /api/notes-bridge/v1/notes/<filename>` with
   `{"filename", "note", "expected_revision"}` — `{revision}` of the saved file
-- `GET /api/notes-bridge/v1/notes/<filename>/highlights` — `{filename, revision, highlights, review_marks}`:
-  every persisted `{{highlight:name}}` span, plus (for the Personal Representative's Deed only) the page's yellow
-  review marks, computed by `notes_review_marks.py` -- a port of `deedReviewKind` that `tests/test_notes_review_marks.py`
-  runs against the browser's own rule so the two cannot drift. A review mark is cleared by resolving its text
-  (an ordinary edit); the page drops it on its next 3 s poll.
+- `GET /api/notes-bridge/v1/notes/<filename>/highlights` — `{filename, revision, highlights,
+  review_marks, active_warning}`, every persisted `{{highlight:name}}` span (see below), plus the
+  deed's static review marks and its one active/blinking line (see "What is highlighted in this
+  note?" below)
 
-### "What is highlighted in this note?" — three different things named "highlight"
+### "What is highlighted in this note?" — four different things that can look like "a highlight"
 
-This note format has three things that can look like "a highlight" to a reader, and they are not
+This note format has four things that can look like "a highlight" to a reader, and they are not
 interchangeable:
 
 1. **A persisted highlight span.** `{{highlight:name}}text{{/highlight}}` written into the note's
-   own saved Markdown (see "Formatting" above). This is the only kind `/highlights` reports. It is
-   not a separate offset stored anywhere — it travels inline with the text itself, so reading the
-   note and looking for these spans *is* reconstructing it, correctly, every time, with no drift
-   possible between save and reopen.
-2. **The Personal Representative's Deed page's view-only review marks** (reported separately, as `review_marks`)
+   own saved Markdown (see "Formatting" above). This is the only kind the `highlights` field of
+   `/highlights` reports. It is not a separate offset stored anywhere — it travels inline with the
+   text itself, so reading the note and looking for these spans *is* reconstructing it, correctly,
+   every time, with no drift possible between save and reopen.
+2. **The Personal Representative's Deed page's view-only static review marks**
    (`js/boot/notes.js` `deedReviewKind`/`isPersonalRepresentativeDeed`). For that one note only, the
-   browser renders certain sentences (a preparer line, a legal description, tax language) as
-   `<mark>` purely by pattern-matching the saved text at render time — nothing is written to the
-   file for this, so there is no span to report here. `highlights` excludes these; `review_marks` reports them.
-3. **An unsaved browser text selection.** Selecting text in the editor's textarea is pure browser
+   browser renders certain sentences (a preparer line, a legal description, tax language, or any
+   other open placeholder) as a plain `<mark>` purely by pattern-matching the saved text at render
+   time — nothing is written to the file for this, so there is no persisted span to report. The
+   `highlights` field deliberately excludes these; `/highlights`' separate `review_marks` field
+   reports them instead (line, kind, text, reason — see "Review marks" below).
+3. **The one active (blinking) warning line.** A *different* kind of rendering: inside the "Authority
+   of the Personal Representative" section only, one specific kind of bracketed sentence ("...VERIFY
+   WITH ... ATTORNEY/PROBATE COURT...") gets a *blinking* background instead of a plain static mark
+   (`.notes-deed-review-active-line`, `js/boot/notes.js` `isActiveAttorneyWarning`). This is reported
+   as `/highlights`' `active_warning` field — `{"line", "text"}` or `null` — and is never duplicated
+   into `review_marks`; see "The active (blinking) line" below. **Do not conflate this with (2):** the
+   ten `review_marks` categories are static and can all be present at once, while there is at most one
+   active line, and it is a different data path (`notes_active_warning.py`, not
+   `notes_review_marks.py`).
+4. **An unsaved browser text selection.** Selecting text in the editor's textarea is pure browser
    state; it is never sent to the server and never becomes part of the saved note. There is
    therefore no code path by which it could be confused with (1) — the façade only ever reads bytes
    already on disk.
@@ -129,6 +125,27 @@ own `filename` plus the `revision` returned alongside `highlights` together form
 for "this exact highlighted version of this note" — if `revision` differs from a prior read, the
 underlying text (and therefore any highlight) may have changed.
 
+### The active (blinking) line — never one of the ten static review marks
+
+A caller that needs "is anything currently blinking on the deed page, and which line" should read the
+`active_warning` field of the same `/highlights` response, not `review_marks`:
+
+```json
+{"active_warning": {"line": 12, "text": "[VERIFY WITH THE PROBATE COURT OR A MICHIGAN ESTATE ATTORNEY: confirm which recitals are required.]"}}
+```
+
+or `{"active_warning": null}` when the note holds no such line right now — this is a direct answer,
+never a guess from an older read. `line` is the same 1-based numbering as everywhere else in this
+file. `notes_active_warning.py` computes it by the exact same two-part rule the browser applies at
+render time (`js/boot/notes.js` `isActiveAttorneyWarning`): the line must (a) already qualify as one
+of the ten `notes_review_marks.py` categories (an open `[bracket]`, `NOT VERIFIED`, or `VERIFY`), and
+(b) sit under a heading matching "Authority of the Personal Representative", and (c) itself match
+`^\s*\[.*VERIFY WITH.*(?:ATTORNEY|PROBATE COURT).*\]\s*$` (case-insensitive). A line that satisfies
+only (a) is a static mark, reported in `review_marks`, not here. Because the browser never renders a
+line as both a static mark and the blinking span, `/highlights` drops that line from `review_marks`
+to match — so the two fields never double-count the same line, and `len(review_marks)` is never an
+answer to "what is blinking."
+
 ### Verifying this against the live note, not a cached answer
 
 Because `/highlights` recomputes its answer from `repository.read(filename)` on every call, there is
@@ -148,7 +165,7 @@ No claim is made here that a live ChatGPT Bridge task has actually exercised thi
 A caller may send `X-Bridge-Task: t_<hex>` so its events group under its
 Bridge task on the Worker Activity page.
 
-### From ChatGPT and Toyota: the Star Trek Bridge `notes` agent
+### From ChatGPT: the Star Trek Bridge `notes` agent
 
 ChatGPT reaches this through the Bridge worker's `notes` agent
 (`agent_blocks/lancedb_memory/agent_bridge_worker/notes_agent.py`), which
@@ -160,26 +177,6 @@ holds the `agent-bridge-notes` token. The task prompt is JSON:
 {"notes": "update", "id": "<filename>", "expected_revision": "<from read>",
  "edits": [{"find": "<exact text>", "replace": "<new text>"}]}       // implement
 ```
-
-The full set (both agents have all of it; `notes_ops/commands.py` in `agent_bridge_worker` has one Command per row,
-`receptionist_team/bridge_client/notes_plans.py` the matching Plan for Toyota):
-
-| operation | lane | takes |
-|---|---|---|
-| `list` / `search` | inspect | optional `query`, `category` (search needs `query`) |
-| `read` | inspect | `id` |
-| `highlights` | inspect | `id` -- saved spans and the deed's review marks |
-| `refresh` | inspect | `id`, `known_revision` -- changed? returns the new text only if so |
-| `trash_list` | inspect | |
-| `update` | implement | `id`, `expected_revision`, `edits` (each ONE of `find` / `line` / `section` / `append`, + `replace`) or `text` |
-| `highlight` | implement | `id`, `expected_revision`, `marks`: `{action: add\|recolor\|clear, text, color}` or `{action: clear, all: true}` |
-| `create` | implement | `name`, `text`, optional `category` |
-| `rename` | implement | `id`, `expected_revision`, `new_name` and/or `category` (0 = none) |
-| `trash` / `restore` / `purge` | implement | `id`+`expected_revision` / `trash_id` / `trash_id`+`authorization` |
-
-Every change reads back through the interface and the dashboard's own endpoint before it reports success
-(`highlight` also checks the dashboard's `/highlights` agrees, so a colour the page cannot render is not "done").
-A task prompt is capped at 8000 characters by the gateway, so a long document is a `create` followed by `append` edits.
 
 `text` (the whole note) may replace `edits`. Each `find` must occur exactly
 once in the note as it stands, or nothing is written; text outside the edits

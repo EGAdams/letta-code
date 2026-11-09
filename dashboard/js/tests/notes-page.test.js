@@ -330,6 +330,36 @@ describe("Notes page", () => {
     );
   });
 
+  test("the active deed warning stays readable when live polling rebuilds the preview", async () => {
+    const warning =
+      "[VERIFY WITH AN ATTORNEY OR THE PROBATE COURT: confirm authority before recording.]";
+    const deed = [
+      "# Personal Representative's Deed of Distribution",
+      "## Authority of the Personal Representative",
+      warning,
+    ].join("\n");
+    const server = fakeServer({ "2026-11-03_deed.md": deed });
+    const { el, api } = page(server);
+    await settle();
+    button(el, "2026-11-03_deed.md").click();
+    await settle();
+    expect(el["notes-editor-preview"].innerHTML).toContain(warning);
+
+    server.files["2026-11-03_deed.md"] = `${deed}\nUpdated by Bridge.`;
+    await api.pollSelected();
+    expect(el["notes-editor-preview"].innerHTML).toContain(warning);
+    expect(el["notes-editor-preview"].innerHTML).toContain(
+      "notes-deed-review-active-line",
+    );
+
+    server.files["2026-11-03_deed.md"] = deed;
+    await api.refreshSelected();
+    expect(el["notes-editor-preview"].innerHTML).toContain(warning);
+    expect(el["notes-editor-preview"].innerHTML).toContain(
+      "notes-deed-review-active-line",
+    );
+  });
+
   test("the deed preview marks preparer, legal-description, and tax review lines without changing Markdown", async () => {
     const deed = [
       "# Personal Representative's Deed of Distribution",
@@ -416,6 +446,83 @@ describe("Notes page", () => {
       expect(html).toContain("<strong>bold</strong>");
       expect(html).toContain("<code>code</code>");
       expect(html).toContain('<mark class="notes-highlight-yellow">hi</mark>');
+    });
+  });
+
+  describe("markdownHtml — Markdown source links", () => {
+    test("a [label](https://...) link becomes a real, safely-targeted anchor", () => {
+      const html = markdownHtml(
+        "[County Register of Deeds](https://example.gov/search)",
+      );
+      expect(html).toContain(
+        '<a href="https://example.gov/search" target="_blank" rel="noopener noreferrer">County Register of Deeds</a>',
+      );
+    });
+
+    test("http:// links are linked too", () => {
+      const html = markdownHtml("[old archive](http://example.org/archive)");
+      expect(html).toContain(
+        '<a href="http://example.org/archive" target="_blank" rel="noopener noreferrer">old archive</a>',
+      );
+    });
+
+    test("javascript:, data:, file:, relative, and non-http(s) links are never linked", () => {
+      const unsafe = [
+        "[x](javascript:alert(1))",
+        "[x](data:text/html,<script>alert(1)</script>)",
+        "[x](file:///etc/passwd)",
+        "[x](/dashboard/internal)",
+        "[x](ftp://example.com/file)",
+      ];
+      for (const line of unsafe) {
+        expect(markdownHtml(line)).not.toContain("<a ");
+      }
+    });
+
+    test("label and URL special characters are escaped, not injected as HTML", () => {
+      const html = markdownHtml(
+        '[Click <here> & "verify"](https://example.com/a?b=1&c=2)',
+      );
+      expect(html).toContain(
+        '<a href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">Click &lt;here&gt; &amp; &quot;verify&quot;</a>',
+      );
+      expect(html).not.toContain("<script>");
+    });
+
+    test("a link cannot break out of the href attribute with a quote", () => {
+      const html = markdownHtml(
+        '[x](https://example.com/"><script>alert(1)</script>)',
+      );
+      expect(html).not.toContain("<script>");
+      expect(html).not.toContain('"><script');
+    });
+
+    test("a link written inside `code` stays plain text, not an anchor", () => {
+      const html = markdownHtml("see `[label](https://example.com)` in code");
+      expect(html).toContain("<code>[label](https://example.com)</code>");
+      expect(html).not.toContain("<a ");
+    });
+
+    test("bold and highlight marks around a link are unaffected", () => {
+      const html = markdownHtml(
+        "**Source:** [county site](https://example.gov) {{highlight:yellow}}verify{{/highlight}}",
+      );
+      expect(html).toContain("<strong>Source:</strong>");
+      expect(html).toContain(
+        '<a href="https://example.gov" target="_blank" rel="noopener noreferrer">county site</a>',
+      );
+      expect(html).toContain(
+        '<mark class="notes-highlight-yellow">verify</mark>',
+      );
+    });
+
+    test("a heading can contain a link", () => {
+      const html = markdownHtml(
+        "## Sources: [county records](https://example.gov)",
+      );
+      expect(html).toContain(
+        '<h2>Sources: <a href="https://example.gov" target="_blank" rel="noopener noreferrer">county records</a></h2>',
+      );
     });
   });
 

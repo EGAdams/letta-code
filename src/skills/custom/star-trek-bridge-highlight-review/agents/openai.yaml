@@ -1,0 +1,4 @@
+interface:
+  display_name: "Star Trek Bridge Highlight Review"
+  short_description: "Review Dashboard Notes highlights safely"
+  default_prompt: "Use the Star Trek Bridge workflow to inspect the first visible yellow highlight in a named Dashboard Note, report its exact text and likely reason, verify it visually, and continue one highlight at a time without editing."

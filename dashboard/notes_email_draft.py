@@ -14,12 +14,13 @@ from __future__ import annotations
 from urllib.parse import quote
 
 import notes_formatting
+import notes_review_focus
 
 _SUBJECT_MAX = 120
 
 
 def _subject(filename: str, note_text: str) -> str:
-    for line in note_text.splitlines():
+    for line in notes_review_focus.without_markers(note_text).splitlines():
         stripped = line.strip().lstrip("#").strip()
         if stripped:
             return stripped[:_SUBJECT_MAX]
@@ -27,8 +28,9 @@ def _subject(filename: str, note_text: str) -> str:
 
 
 def build_email_draft(filename: str, note_text: str, *, to: str = "") -> dict:
-    subject = _subject(filename, note_text)
-    body_text = notes_formatting.plain_text(note_text)
+    rendered_note = notes_review_focus.without_markers(note_text)
+    subject = _subject(filename, rendered_note)
+    body_text = notes_formatting.plain_text(rendered_note)
     query = f"subject={quote(subject)}&body={quote(body_text)}"
     recipient = quote(to) if to else ""
     return {

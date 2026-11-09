@@ -236,3 +236,20 @@ class NotesBridgeClient:
         if status != 200:
             self._raise_for(status, payload)
         return payload["highlights"]
+
+    def active_warning(self, filename: str) -> dict | None:
+        """The one line currently blinking on the Notes dashboard for this note, or None. Read-only.
+
+        This is the "Authority of the Personal Representative" VERIFY-WITH-ATTORNEY/PROBATE-COURT
+        line the page renders with a blinking background (``.notes-deed-review-active-line`` in
+        js/boot/notes.js), recomputed fresh from the note's current saved text (see
+        notes_active_warning.py) -- never a stored line number that could drift from it. It is
+        never one of the ten static ``review_marks`` categories returned alongside it by the same
+        call: a line is either the one active/blinking passage or an ordinary static mark, never
+        both, and most notes -- and most moments in the deed note's own life -- have none at all.
+        {"line": <1-based line number>, "text": <exact line text>} or None.
+        """
+        status, payload = self._call("GET", f"/notes/{filename}/highlights")
+        if status != 200:
+            self._raise_for(status, payload)
+        return payload["active_warning"]

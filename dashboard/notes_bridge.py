@@ -34,6 +34,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+import notes_active_warning
 import notes_activity
 import notes_bridge_core
 import notes_bridge_extras
@@ -184,10 +185,19 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
             if highlights_match:
                 highlights = notes_highlights.highlights_payload(note)
                 marks = notes_review_marks.review_marks(filename, note)
+                active = notes_active_warning.active_warning(filename, note)
+                # The browser renders a line as either the one blinking active-line span or an
+                # ordinary static mark, never both (js/boot/notes.js renderReviewedLine). The active
+                # line's own entry is therefore dropped from review_marks here so this payload
+                # matches what the page actually shows, not deedReviewKind's rule in isolation.
+                if active:
+                    marks = [m for m in marks if m["line"] != active["line"]]
                 log("highlights", filename=filename, actor=actor, revision=revision,
-                    detail=f"{len(highlights)} span(s), {len(marks)} review mark(s)")
+                    detail=f"{len(highlights)} span(s), {len(marks)} review mark(s), "
+                           f"active warning {'on line ' + str(active['line']) if active else 'none'}")
                 return _json(200, {"ok": True, "filename": filename, "revision": revision,
-                                   "highlights": highlights, "review_marks": marks})
+                                   "highlights": highlights, "review_marks": marks,
+                                   "active_warning": active})
             draft = notes_email_draft.build_email_draft(filename, note)
             log("email_draft", filename=filename, actor=actor, revision=revision)
             return _json(200, {"ok": True, "filename": filename, "revision": revision, **draft})
