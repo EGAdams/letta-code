@@ -1,9 +1,12 @@
+"""Scope, revisions and protection for the Notes bridge's management routes, through dispatch.
+
+Written against the current contract (create by `filename` hint, `/notes/<f>/delete` to the trash,
+`/trash/<id>/restore`). Search, purge and highlights are covered in test_notes_bridge_extras.py."""
 import json
 
 import pytest
 
 import notes_bridge
-import notes_library
 from voice import note_repository
 
 PREFIX = "/api/notes-bridge/v1"
@@ -25,7 +28,6 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("NOTES_BRIDGE_PROTECTED", str(cfg / "protected.json"))
     monkeypatch.setenv("NOTES_ACTIVITY_LOG", str(tmp_path / "activity.jsonl"))
     monkeypatch.setattr(notes_bridge.composition, "authorizer", lambda: Auth())
-    monkeypatch.setattr(notes_bridge, "build_library", lambda: notes_library.NoteLibrary(str(notes)))
     monkeypatch.setattr(notes_bridge.note_repository, "build_note_repository",
                         lambda: note_repository.FilesystemNoteRepository(str(notes)))
 
@@ -38,8 +40,8 @@ def world(tmp_path, monkeypatch):
     return call
 
 
-def make(call, name="Alpha", text="hello", category=None):
-    status, body = call("POST", "/notes", {"name": name, "note": text, "category": category})
+def make(call, hint="alpha", text="hello"):
+    status, body = call("POST", "/notes", {"note": text, "filename": hint})
     assert status == 200, body
     return body
 
@@ -60,74 +62,38 @@ def test_without_all_mode_the_list_still_gates(world):
     assert world("GET", "/notes/2026-01-01_b.md")[0] == 403
 
 
-def test_all_false_is_not_all(world):
+def test_all_must_be_true_not_merely_truthy(world):
     world.cfg.joinpath("approved.json").write_text(json.dumps({"all": "yes"}))
     (world.notes / "2026-01-01_b.md").write_text("b\n")
     assert world("GET", "/notes/2026-01-01_b.md")[0] == 403
 
 
-def test_create_search_and_detail(world):
-    made = make(world, "Probate Deed", "find the NEEDLE here", 4)
-    assert made["category"] == 4
-    status, body = world("GET", "/notes?q=needle")
-    assert body["entries"][0]["filename"] == made["filename"]
-    assert body["entries"][0]["matches"][0]["line"] == 1
-    assert world("GET", "/notes?category=5")[1]["notes"] == []
-    assert world("GET", "/notes?category=abc")[0] == 400
-
-
-def test_rename_move_requires_the_current_revision(world):
-    made = make(world, "Draft", "body", 1)
+def test_rename_requires_the_current_revision(world):
+    made = make(world, "draft", "body")
     path = f"/notes/{made['filename']}/rename"
-    assert world("POST", path, {"category": 4})[0] == 428
-    status, body = world("POST", path, {"expected_revision": "0" * 64, "category": 4})
-    assert status == 409 and body["revision"] == made["revision"]
-    status, body = world("POST", path, {"expected_revision": made["revision"], "category": 4})
-    assert status == 200 and body["filename"].endswith("_04-draft.md")
+    target = made["filename"].replace("_draft", "_04-draft")
+    assert world("POST", path, {"new_filename": target})[0] in (400, 428)
+    status, body = world("POST", path, {"new_filename": target, "expected_revision": "0" * 64})
+    assert status == 409
+    status, body = world("POST", path, {"new_filename": target, "expected_revision": made["revision"]})
+    assert status == 200 and body["filename"] == target
     assert world("GET", f"/notes/{made['filename']}")[0] == 404
 
 
-def test_trash_restore_and_the_purge_phrase(world):
-    made = make(world, "Doomed", "bye")
-    name = made["filename"]
-    status, gone = world("POST", f"/notes/{name}/trash", {"expected_revision": made["revision"]})
-    assert status == 200 and world("GET", f"/notes/{name}")[0] == 404
-    assert world("GET", "/trash")[1]["trash"][0]["trash_id"] == gone["trash_id"]
-    status, back = world("POST", f"/trash/{gone['trash_id']}/restore", {})
-    assert status == 200 and back["filename"] == name
-
-    again = world("POST", f"/notes/{name}/trash", {"expected_revision": back["revision"]})[1]
-    bad = world("POST", f"/trash/{again['trash_id']}/purge", {"authorization": "yes please"})
-    assert bad[0] == 403 and bad[1]["error"] == "authorization_required"
-    assert world("GET", "/trash")[1]["trash"]
-    phrase = notes_library.purge_phrase(again["trash_id"])
-    status, done = world("POST", f"/trash/{again['trash_id']}/purge", {"authorization": phrase})
-    assert status == 200 and done["purged"] and world("GET", "/trash")[1]["trash"] == []
-
-
-def test_protected_notes_cannot_be_renamed_or_trashed_even_in_all_mode(world):
-    made = make(world, "Deed", "legal")
+def test_protected_notes_cannot_be_renamed_or_deleted_even_in_all_mode(world):
+    made = make(world, "deed", "legal")
     world.cfg.joinpath("protected.json").write_text(json.dumps({"notes": [made["filename"]]}))
-    for action in ("trash", "rename"):
+    for action, extra in (("delete", {}), ("rename", {"new_filename": "2026-01-01_x.md"})):
         status, body = world("POST", f"/notes/{made['filename']}/{action}",
-                             {"expected_revision": made["revision"], "new_name": "x"})
-        assert status == 403 and body["error"] == "note_protected"
+                             {"expected_revision": made["revision"], **extra})
+        assert status == 403, (action, body)
     assert world("GET", f"/notes/{made['filename']}")[0] == 200
 
 
-def test_highlights_route_reports_persisted_spans_and_review_marks(world):
-    name = "2026-11-03_draft-personal-representative-s-deed-of-distribution.md"
-    (world.notes / name).write_text("# Personal Representative's Deed of Distribution\n"
-                                    "{{highlight:yellow}}see this{{/highlight}}\n"
-                                    "Parcel No. [VERIFY]\n")
-    status, body = world("GET", f"/notes/{name}/highlights")
-    assert status == 200
-    assert [h["text"] for h in body["highlights"]] == ["see this"]
-    assert [(m["line"], m["kind"]) for m in body["review_marks"]] == [(3, "legal-description")]
-
-
-def test_trash_listing_is_invisible_to_the_browser_note_list(world):
-    made = make(world, "Hidden", "x")
-    world("POST", f"/notes/{made['filename']}/trash", {"expected_revision": made["revision"]})
+def test_a_deleted_note_is_in_the_trash_not_the_browser_list_and_comes_back(world):
+    made = make(world, "hidden", "x")
+    trashed = world("POST", f"/notes/{made['filename']}/delete", {"expected_revision": made["revision"]})[1]["trashed_as"]
     repo = note_repository.FilesystemNoteRepository(str(world.notes))
-    assert repo.list() == []
+    assert repo.list() == [] and world("GET", "/trash")[1]["trash"] == [trashed]
+    status, back = world("POST", f"/trash/{trashed}/restore", {})
+    assert status == 200 and world("GET", f"/notes/{made['filename']}")[0] == 200

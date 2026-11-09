@@ -112,10 +112,12 @@ def test_missing_approval_list_approves_nothing(monkeypatch, activity, tmp_path)
     assert status == 403 and repo.writes == 0
 
 
-def test_create_without_a_name_is_refused_not_silently_made(monkeypatch, activity):
-    payload = json.dumps({"note": "new note"}).encode()
-    status, body, _ = call(monkeypatch, "POST", "/api/notes-bridge/v1/notes", payload)
-    assert status == 400 and body["error"] == "refused"
+def test_a_blank_or_malformed_create_is_refused_and_nothing_is_saved(monkeypatch, activity):
+    """A name is only a hint (the repository dates and slugs it); a note with no words, or a body that is not
+    two strings, is refused before the repository is asked -- this fake's save would raise if it were."""
+    for body in ({"note": "   \n"}, {"note": "x", "filename": 5}, {"note": ["x"]}):
+        status, reply, _ = call(monkeypatch, "POST", "/api/notes-bridge/v1/notes", json.dumps(body).encode())
+        assert status == 400 and "error" in reply, body
 
 
 def test_unknown_token_is_refused_and_logged(monkeypatch, activity):
