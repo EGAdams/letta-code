@@ -7,6 +7,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 from .models import BackgroundTask, ServerConfig
+from .service_tasks import service_monitor_task
 
 
 class ReusableHTTPServer(ThreadingHTTPServer):
@@ -47,7 +48,7 @@ def serve(handler_class, config=None, tasks=(), banners=()):
     print(f'Dashboard server on {config.url}')
     for line in banners:
         print(line)
-    start_background_tasks(tasks)
+    start_background_tasks([*tasks, service_monitor_task()])
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

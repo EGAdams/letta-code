@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+import notes_review_focus
+
 UNRESOLVED = re.compile(r"\[[^\]\n]*\]|not\s+verified|\bverify\b", re.I)
 _PREPARER = re.compile(r"prepared\s+by|preparer|personal representative|\bpr\b")
 _LEGAL = re.compile(r"legal description|property description|parcel description|parcel\s+(?:no|number)|tax parcel")
@@ -59,6 +61,8 @@ def review_marks(filename: str, source: str) -> list[dict]:
         return []
     marks, in_mermaid = [], False
     for number, raw in enumerate(re.split(r"\r?\n", source), 1):
+        if notes_review_focus.is_marker_line(raw):
+            continue
         if raw.strip() == "```mermaid":
             in_mermaid = True
             continue

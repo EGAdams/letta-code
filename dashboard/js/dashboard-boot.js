@@ -32,6 +32,7 @@ import { startReceptionist } from "./boot/receptionist.js";
 import { createRolFinance } from "./boot/rol-finance.js";
 import { setupScanners } from "./boot/scanners/index.js";
 import { createServerManager } from "./boot/server-manager.js";
+import { createServiceManagement } from "./boot/service-management.js";
 import { createSshManager } from "./boot/ssh-manager.js";
 import { createStartupChecks } from "./boot/startup-checks.js";
 import { createStatusHome } from "./boot/status-home.js";
@@ -166,6 +167,7 @@ createDashboardVersion({ doc });
 const ABP = createAgentBridgePoll({ doc, win, http, workerFeed: WKR });
 const PRN = createPrinterPanel({ doc, win, http });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
+const SVC = createServiceManagement({ doc, win, http, nav, viewNav });
 const statusHome = createStatusHome({ doc, http });
 statusHome.bind();
 const SSHM = createSshManager({ doc, http, nav, viewNav, tabFactory });
@@ -187,6 +189,7 @@ bindNavigation({
   voiceCommunicationNav,
   AM,
   SM,
+  SVC,
   SSHM,
   MS,
   PCM,

@@ -20,13 +20,13 @@ Subcommands:
     export-docx <filename> <output-path>          -> {"ok": true, "filename", "path", "bytes"}
     email-draft <filename>                        -> {"ok": true, "filename", "subject",
                                                        "body_text", "mailto_url"}
-    highlights <filename>                         -> {"ok": true, "filename", "highlights"}
-    search <query> [--category N]                 -> {"ok": true, "entries": [...]}
-    create <name> [--category N]                  (note text on stdin)
-    rename <filename> --expected-revision REV [--new-name X] [--category N]  (N=0: no category)
-    trash <filename> --expected-revision REV      -> {"ok": true, "trash_id", ...}   (recoverable)
-    trash-list | restore <trash_id>
-    purge <trash_id> --authorization "<sentence>" (permanent; sentence = notes_library.purge_phrase)
+    highlights <filename>                         -> {"ok": true, "filename", "highlights", "review_marks"}
+    active-warning <filename>                     -> {"ok": true, "filename", "active_warning"}
+    search [query] [--category N]                 -> {"ok": true, "entries": [...]}
+    rename <filename> <new-filename> --expected-revision REV
+    delete <filename> --expected-revision REV     -> {"ok": true, "trashed_as"}   (recoverable)
+    trash-list | restore <trashed-name> [--filename NAME]
+    purge <trashed-name> --authorization "<sentence>"   (permanent; sentence = notes_bridge_extras.purge_phrase)
 
 `export-docx` and `email-draft` are both read-only: the first writes the
 rendered Word document to the given local path (not back to the dashboard),
@@ -40,6 +40,16 @@ drift from it across a save/reopen. It never reports the Personal
 Representative's Deed page's view-only "review" marks (js/boot/notes.js),
 which are not saved markup, and has no way to see a browser's current
 unsaved text selection.
+
+`active-warning` is also read-only: it returns the single line, if any, the
+Notes page is currently rendering with a *blinking* background on the
+Personal Representative's Deed page (``.notes-deed-review-active-line`` in
+js/boot/notes.js) -- the bracketed "VERIFY WITH ... ATTORNEY/PROBATE COURT"
+sentence inside the "Authority of the Personal Representative" section, if
+the note currently has one. This is never one of the static `review_marks`
+entries `highlights` returns alongside it; a line is either the one active
+passage or an ordinary static mark, never both, and most notes have neither.
+`active_warning` is `null` when no such line exists right now, not a guess.
 
 `create` always assigns a new filename (the repository never overwrites an
 existing note that way); `update` and `remove-text` both require
@@ -94,7 +104,7 @@ def _cmd_read(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
 
 def _cmd_create(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
     note = _read_stdin()
-    filename, persisted_note, revision = client.create_and_verify(note, args.name, args.category)
+    filename, persisted_note, revision = client.create_and_verify(note)
     return {"ok": True, "filename": filename, "revision": revision,
             "verified": persisted_note == _persisted_text(note)}
 
@@ -131,16 +141,20 @@ def _cmd_highlights(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> 
     return {"ok": True, "filename": args.filename, "highlights": highlights}
 
 
+def _cmd_active_warning(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
+    return {"ok": True, "filename": args.filename, "active_warning": client.active_warning(args.filename)}
+
+
 def _cmd_search(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
     return {"ok": True, "entries": client.search(args.query, args.category)}
 
 
 def _cmd_rename(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
-    return {"ok": True, **client.rename(args.filename, args.expected_revision, args.new_name, args.category)}
+    return {"ok": True, **client.rename(args.filename, args.expected_revision, args.new_filename)}
 
 
-def _cmd_trash(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
-    return {"ok": True, **client.trash(args.filename, args.expected_revision)}
+def _cmd_delete(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
+    return {"ok": True, **client.delete(args.filename, args.expected_revision)}
 
 
 def _cmd_trash_list(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
@@ -148,17 +162,17 @@ def _cmd_trash_list(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> 
 
 
 def _cmd_restore(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
-    return {"ok": True, **client.restore(args.trash_id)}
+    return {"ok": True, **client.restore(args.trashed_name, args.filename)}
 
 
 def _cmd_purge(client: nbc.NotesBridgeClient, args: argparse.Namespace) -> dict:
-    return {"ok": True, **client.purge(args.trash_id, args.authorization)}
+    return {"ok": True, **client.purge(args.trashed_name, args.authorization)}
 
 
 _HANDLERS = {
     "search": _cmd_search,
     "rename": _cmd_rename,
-    "trash": _cmd_trash,
+    "delete": _cmd_delete,
     "trash-list": _cmd_trash_list,
     "restore": _cmd_restore,
     "purge": _cmd_purge,
@@ -170,6 +184,7 @@ _HANDLERS = {
     "export-docx": _cmd_export_docx,
     "email-draft": _cmd_email_draft,
     "highlights": _cmd_highlights,
+    "active-warning": _cmd_active_warning,
 }
 
 
@@ -185,32 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
     read_parser = subparsers.add_parser("read", help="Read one note.")
     read_parser.add_argument("filename")
 
-    create_parser = subparsers.add_parser("create", help="Create a note from stdin.")
-    create_parser.add_argument("name")
-    create_parser.add_argument("--category", type=int, default=None)
-
-    search_parser = subparsers.add_parser("search", help="Find notes by name or text.")
-    search_parser.add_argument("query", nargs="?", default="")
-    search_parser.add_argument("--category", type=int, default=None)
-
-    rename_parser = subparsers.add_parser("rename", help="Rename and/or move a note to a category.")
-    rename_parser.add_argument("filename")
-    rename_parser.add_argument("--expected-revision", required=True)
-    rename_parser.add_argument("--new-name", default=None)
-    rename_parser.add_argument("--category", type=int, default=None)
-
-    trash_parser = subparsers.add_parser("trash", help="Move a note to the recoverable trash.")
-    trash_parser.add_argument("filename")
-    trash_parser.add_argument("--expected-revision", required=True)
-
-    subparsers.add_parser("trash-list", help="List trashed notes.")
-
-    restore_parser = subparsers.add_parser("restore", help="Restore a trashed note.")
-    restore_parser.add_argument("trash_id")
-
-    purge_parser = subparsers.add_parser("purge", help="Permanently delete one trashed note (needs EG's sentence).")
-    purge_parser.add_argument("trash_id")
-    purge_parser.add_argument("--authorization", required=True)
+    subparsers.add_parser("create", help="Create a note from stdin.")
 
     update_parser = subparsers.add_parser("update", help="Update one note from stdin.")
     update_parser.add_argument("filename")
@@ -228,6 +218,34 @@ def build_parser() -> argparse.ArgumentParser:
     highlights_parser = subparsers.add_parser(
         "highlights", help="List persisted {{highlight:name}} spans in one note. Read-only.")
     highlights_parser.add_argument("filename")
+
+    active_warning_parser = subparsers.add_parser(
+        "active-warning",
+        help="The one line currently blinking on the deed page, if any. Read-only.")
+    active_warning_parser.add_argument("filename")
+
+    search_parser = subparsers.add_parser("search", help="Find notes by name or text, or by category.")
+    search_parser.add_argument("query", nargs="?", default="")
+    search_parser.add_argument("--category", type=int, default=None)
+
+    rename_parser = subparsers.add_parser("rename", help="Rename a note (a leading NN- is its category).")
+    rename_parser.add_argument("filename")
+    rename_parser.add_argument("new_filename")
+    rename_parser.add_argument("--expected-revision", required=True)
+
+    delete_parser = subparsers.add_parser("delete", help="Move a note to the recoverable trash.")
+    delete_parser.add_argument("filename")
+    delete_parser.add_argument("--expected-revision", required=True)
+
+    subparsers.add_parser("trash-list", help="List trashed notes.")
+
+    restore_parser = subparsers.add_parser("restore", help="Restore a trashed note.")
+    restore_parser.add_argument("trashed_name")
+    restore_parser.add_argument("--filename", default="")
+
+    purge_parser = subparsers.add_parser("purge", help="Permanently delete one trashed note (needs EG's sentence).")
+    purge_parser.add_argument("trashed_name")
+    purge_parser.add_argument("--authorization", required=True)
 
     return parser
 

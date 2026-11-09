@@ -43,6 +43,7 @@ from monitoring import wsl_interop_entry
 from monitoring import agent_bridge_poll
 from monitoring import printer_panel
 from monitoring import worker_activity
+from monitoring import service_management
 from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
@@ -64,6 +65,9 @@ class GetRoutesMixin:
         path = parsed.path
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
+
+        if path == '/api/service-management':
+            return self.json_response(service_management.service_management_payload())
 
         if path.startswith(scan_bridge_routes.PREFIX):
             return scan_bridge_routes.serve(self, 'GET')

@@ -77,40 +77,15 @@ def test_bridge_lists_existing_notes_without_changing_them(live_server, notes_di
     assert notes_dir.joinpath("deed.md").read_text() == DEED_TEXT
 
 
-def test_bridge_create_needs_a_name_and_never_overwrites(live_server, notes_dir):
+def test_bridge_create_is_refused_and_writes_nothing(live_server, notes_dir):
+    # The façade updates approved notes only; it never creates one (no duplicate documents).
     client = nbc.NotesBridgeClient(base_url=live_server, token=TOKEN)
 
-    with pytest.raises(nbc.NotesBridgeError, match="400"):
-        client.create("brand new note")  # no name: refused, nothing written
-    assert sorted(p.name for p in notes_dir.iterdir()) == ["deed.md"]
-
-    first, _ = client.create("one", name="Plans", category=5)
-    second, _ = client.create("two", name="Plans", category=5)
-    assert first != second and "_05-plans" in first
-    assert notes_dir.joinpath("deed.md").read_text() == DEED_TEXT
-
-
-def test_bridge_manages_a_note_end_to_end(live_server, notes_dir):
-    import notes_library
-    client = nbc.NotesBridgeClient(base_url=live_server, token=TOKEN)
-    name, revision = client.create("find the NEEDLE\n", name="Scratch")
-    assert [e["filename"] for e in client.search("needle")] == [name]
-
-    moved = client.rename(name, revision, category=4)
-    assert moved["filename"].endswith("_04-scratch.md") and not notes_dir.joinpath(name).exists()
-    gone = client.trash(moved["filename"], moved["revision"])
-    assert [t["trash_id"] for t in client.trash_list()] == [gone["trash_id"]]
-    assert notes_dir.joinpath(moved["filename"]).exists() is False
-
-    back = client.restore(gone["trash_id"])
-    assert notes_dir.joinpath(back["filename"]).read_text() == "find the NEEDLE\n"
-
-    again = client.trash(back["filename"], back["revision"])
     with pytest.raises(nbc.NotesBridgeError, match="403"):
-        client.purge(again["trash_id"], "do it")
-    assert client.trash_list()
-    assert client.purge(again["trash_id"], notes_library.purge_phrase(again["trash_id"]))["purged"]
-    assert client.trash_list() == []
+        client.create("brand new note")
+
+    assert sorted(p.name for p in notes_dir.iterdir()) == ["deed.md"]
+    assert notes_dir.joinpath("deed.md").read_text() == DEED_TEXT
 
 
 def test_bridge_refuses_a_note_that_is_not_approved(live_server, notes_dir, monkeypatch):

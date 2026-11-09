@@ -689,6 +689,22 @@ body.startup-loading .sidebar {
 .notes-preview .notes-highlight-purple { background: #e6d6f5; }
 .notes-preview .notes-highlight-gray { background: #e0e0e0; }
 .notes-preview .notes-highlight-black { background: #000; color: #fff; }
+.notes-preview .notes-deed-review-active-line {
+  animation: notes-active-deed-warning 1.4s steps(2, jump-none) infinite;
+  background-color: transparent;
+}
+@keyframes notes-active-deed-warning {
+  0%, 49% { background-color: #fff59d; }
+  50%, 100% { background-color: transparent; }
+}
+@media print {
+  .notes-preview .notes-deed-review-active-line {
+    animation: none;
+    background: #fff59d;
+    opacity: 1;
+    text-decoration: none;
+  }
+}
 .notes-preview .notes-color-red { color: #C0392B; }
 .notes-preview .notes-color-orange { color: #D35400; }
 .notes-preview .notes-color-yellow { color: #B7950B; }

@@ -112,10 +112,10 @@ def test_missing_approval_list_approves_nothing(monkeypatch, activity, tmp_path)
     assert status == 403 and repo.writes == 0
 
 
-def test_create_without_a_name_is_refused_not_silently_made(monkeypatch, activity):
+def test_create_is_not_offered(monkeypatch, activity):
     payload = json.dumps({"note": "new note"}).encode()
     status, body, _ = call(monkeypatch, "POST", "/api/notes-bridge/v1/notes", payload)
-    assert status == 400 and body["error"] == "refused"
+    assert status == 403 and body["error"] == "note_not_approved"
 
 
 def test_unknown_token_is_refused_and_logged(monkeypatch, activity):

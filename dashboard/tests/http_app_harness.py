@@ -163,6 +163,7 @@ DIRECT_SERVICES = {
     'monitoring.agent_bridge_poll_edit': ('save_poll_settings',),
     'monitoring.printer_panel': ('printer_payload', 'start_test_print', 'cancel_job'),
     'monitoring.worker_activity': ('payload',),
+    'monitoring.service_management': ('service_management_payload',),
     'monitoring.server_lifecycle': ('clear_server_starting',
                                     'track_down_duration'),
     'monitoring.ssh_checks': ('cached_ssh_health', 'connection_log_rows',

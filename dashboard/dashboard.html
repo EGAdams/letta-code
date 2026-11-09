@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/css/agent-bridge-poll.css?v=20261103svg2" />
   <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
   <link rel="stylesheet" href="/css/worker-activity.css?v=20261105fiverows" />
+  <link rel="stylesheet" href="/css/service-management.css?v=20261107" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -57,10 +58,16 @@
       <button type="button" class="tab" data-nav="model-stats" data-source="agent-assignments">Agent Assignments</button>
     </nav>
 
+    <nav id="nav-services" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-services">Back</button>
+      <div id="service-management-tabs"></div>
+    </nav>
+
     <!-- Status sub-nav -->
     <nav id="nav-status" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back">Back</button>
       <button type="button" class="tab" data-nav="status" data-target="server-management" id="btn-server-mgmt">Server Management</button>
+      <button type="button" class="tab" data-nav="status" data-target="service-management" id="btn-service-mgmt">Service Management</button>
       <button type="button" class="tab" data-nav="status" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="status" data-target="model-stats" id="btn-model-stats">Model Stats</button>
       <button type="button" class="tab" data-nav="status" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
@@ -229,6 +236,15 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section id="service-management" class="view">
+      <h2>Service Management</h2>
+      <p class="srv-note">API, watchdog, and configured worker services on this machine.
+        Green means running, blinking red means down, and yellow means the state needs attention.
+        A running worker's task activity can be checked in Worker Activity.
+        <button type="button" class="srv-btn" id="service-management-refresh">Refresh</button></p>
+      <div id="service-management-body"><p class="am-dim">Checking services&hellip;</p></div>
     </section>
 
     <section id="status-home" class="view">

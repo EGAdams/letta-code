@@ -84,6 +84,54 @@ Mermaid gotchas that cost real time here (see also the `mermaid-pan-zoom-dashboa
   (which are stale). Antigravity has no quota API for free accounts, so its window is derived from
   the tier cap vs local log count; an expired token needs manual `agy` re-auth (no self-heal).
 
+## Service Management
+
+**System Status → Service Management** lists the Factory Ops API, watchdog,
+the worker selected by `~/.config/factory-ops/env` (unit and systemd scope),
+and the general/express bridge worker lanes, with duplicates removed.
+Each has its own sidebar tab, state, process ID, startup setting, current
+downtime, and observed transition/recovery history. Red blinks on a down
+service and both parent tabs; unknown or missing units show yellow.
+These checks describe systemd service state; Worker Activity verifies task activity.
+
+`GET /api/service-management` reads fixed systemd properties directly, so an
+API or watchdog outage does not prevent the dashboard from reporting it.
+No credentials or arbitrary command parameters are exposed, and there are no
+service restart controls in this section. `monitoring/service_catalog.py`
+owns the catalog, `service_management_models.py` defines the probe/history
+ports and boundary models, and `service_management.py` implements them.
+`http_app/service_tasks.py` composes the monitor into HTTP runtime startup.
+
+The dashboard server samples every 15 seconds even with browsers closed;
+requests share a 10-second cache. Status changes are saved atomically in
+`~/.local/state/factory-ops/service-management.json` with mode 600 (up to 50
+events per service, latest 20 displayed). Existing systemd state timestamps
+seed a newly discovered outage; subsequent observations retain the outage
+start through restart attempts and unknown checks until confirmed recovery.
+Outages between samples, or while the dashboard server is stopped, may be
+missed. Corrupt/unwritable history is reported separately from live states.
+
+Tests: `tests/test_service_management.py` and
+`js/tests/service-management.test.js`; full dashboard checks remain
+`.venv/bin/python -m pytest tests/ -q` and `bun test js/tests`.
+
+Verified live on DESKTOP-2OBSQMC, 2026-11-07: all four services running;
+browser navigation through service tabs and Back works. Service/route/port
+checks: 245 passed. JavaScript suite: 2,975 passed, 2 skipped. Full Python
+suite: 4,104 passed, 2 skipped, 19 failures in existing Notes/finance tests.
+All 19 failures reproduced using the original HTTP routes/runtime in a
+temporary import overlay, with the existing unrelated working-tree files
+preserved. They are outside this service-monitoring change.
+
+Follow-up, 2026-11-07: a later replacement of `dashboard.html` removed the
+Service Management stylesheet, sidebar button/child navigation, and content
+section while the controller/backend remained installed. Restored those
+elements without changing the staged gauge fix. Added a regression test
+against the actual served `/` page (the synthetic controller DOM alone did
+not catch missing shell markup). All 21 service tests pass; verified all four
+tabs in a browser at `http://100.102.209.100:8765/`. Future whole-file shell
+updates must preserve this section and run that regression test.
+
 ## Boot autostart (systemd `--user` services)
 
 `~/.config/systemd/user/` (account has `Linger=yes`, so these start at boot without a login):
