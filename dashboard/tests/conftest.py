@@ -85,3 +85,12 @@ def _isolate_scan_jobs(tmp_path, monkeypatch):
     composition.reset()
     yield
     composition.reset()
+
+
+@pytest.fixture(autouse=True)
+def _no_gateway_request_supervision(monkeypatch):
+    """Worker Activity's payload asks the live gateway for its supervised requests.
+    Tests never reach the network; the ones about that panel inject a source."""
+    from monitoring import worker_activity
+    monkeypatch.setattr(worker_activity, '_requests_cache',
+                        {'at': float('inf'), 'value': {'available': False, 'reason': 'test: gateway not asked'}})

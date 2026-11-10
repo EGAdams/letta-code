@@ -139,3 +139,30 @@ def test_queue_depth_counts_a_task_waiting_only_at_the_gateway(tmp_path, monkeyp
     assert worker_activity.payload()["queue_depth"] == 1
     monkeypatch.setattr(worker_activity, "_escalation", lambda: {"available": True, "stale": True, "queued_count": 5})
     assert worker_activity.payload()["queue_depth"] == 0, "a stale supervisor never raises the count"
+
+
+class _Supervision:
+    def __init__(self, value=None, boom=False):
+        self.calls, self.value, self.boom = 0, value, boom
+
+    def supervision(self):
+        self.calls += 1
+        if self.boom:
+            raise RuntimeError("gateway exploded")
+        return self.value
+
+
+def test_requests_panel_is_cached_so_a_page_poll_is_not_a_gateway_poll(monkeypatch):
+    monkeypatch.setattr(worker_activity, "_requests_cache", {"at": 0.0, "value": None})
+    source = _Supervision({"available": True, "open": [{"request_id": "rq_1"}]})
+    first = worker_activity._requests(now=1000.0, source=source)
+    worker_activity._requests(now=1010.0, source=source)
+    assert source.calls == 1 and first["open"][0]["request_id"] == "rq_1" and first["fetched_at"] == 1000.0
+    worker_activity._requests(now=1000.0 + worker_activity.REQUESTS_CACHE_SECONDS, source=source)
+    assert source.calls == 2
+
+
+def test_requests_panel_failure_is_reported_never_raised(monkeypatch):
+    monkeypatch.setattr(worker_activity, "_requests_cache", {"at": 0.0, "value": None})
+    out = worker_activity._requests(now=5.0, source=_Supervision(boom=True))
+    assert out["available"] is False and "RuntimeError" in out["reason"]

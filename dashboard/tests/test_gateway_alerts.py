@@ -83,3 +83,25 @@ def test_collect_tags_gateway_alerts_as_the_bridge(tmp_path):
 
     out = receptionist_alerts.collect({'bridge': Fake()})
     assert out['alerts'] == [{'id': 'al_1', 'title': 't', 'spoken': 's', 'agent': 'bridge', 'name': 'Star Trek Bridge'}]
+
+
+def test_supervision_carries_open_requests_and_watch_health(tmp_path):
+    snap = dict(SNAPSHOT, checked_at=100, now=130, unacknowledged=1,
+                alerts=SNAPSHOT['alerts'] + [{'alert_id': 'al_9', 'kind': 'request_stalled', 'acknowledged': False}],
+                watch={'refresh_seconds': 30, 'checked_seconds_ago': 30, 'requests_supervised': True},
+                requests={'open': [{'request_id': 'rq_1', 'phase': 'blocked', 'blocked_on': 'EG has not finalized the deed'}],
+                          'recently_closed': [], 'thresholds': {'warn_seconds': 300}})
+    out = _source(tmp_path).supervision(opener=lambda request, timeout=None: _Response(json.dumps(snap).encode()))
+    assert out['available'] and out['open'][0]['phase'] == 'blocked'
+    assert out['watch']['checked_seconds_ago'] == 30 and out['watch']['request_alerts'] == ['al_9']
+    assert out['thresholds'] == {'warn_seconds': 300}
+
+
+def test_supervision_from_an_older_gateway_is_unavailable_not_empty(tmp_path):
+    out = _source(tmp_path).supervision(opener=lambda request, timeout=None: _Response(json.dumps(SNAPSHOT).encode()))
+    assert out['available'] is False and 'does not supervise' in out['reason']
+
+
+def test_supervision_without_a_token_says_so(tmp_path):
+    out = GatewayAlertSource('https://gw.example/v1', tmp_path / 'missing', tmp_path / 'c').supervision()
+    assert out == {'available': False, 'reason': 'no worker token on this machine'}

@@ -33,6 +33,28 @@ SUPERVISOR_HEALTH = Path(os.path.expanduser("~/.cache/agent_bridge/worker_health
 # the bridge worker. Shown as-is; this module never runs its polling loop.
 DEFAULT_ESCALATION_STATE = Path(os.path.expanduser("~/.cache/agent_bridge/adw_supervisor_state.json"))
 ESCALATION_STALE_SECONDS = 120
+# The gateway's own request supervision (agent_blocks' gateway/src/RequestWatch.php),
+# read through gateway_alerts with the worker token and cached, so a 5 s page poll
+# never becomes a 5 s gateway poll and a slow gateway never stalls this payload.
+REQUESTS_CACHE_SECONDS = 30
+_requests_cache: dict = {"at": 0.0, "value": None}
+
+
+def _requests(now: float | None = None, source=None) -> dict:
+    now = time.time() if now is None else now
+    cached = _requests_cache["value"]
+    if cached is not None and now - _requests_cache["at"] < REQUESTS_CACHE_SECONDS:
+        return cached
+    try:
+        if source is None:
+            import gateway_alerts
+            source = gateway_alerts.from_environment()
+        value = source.supervision()
+    except Exception as exc:  # noqa: BLE001 -- this panel must never break Worker Activity
+        value = {"available": False, "reason": f"request supervision could not be read: {type(exc).__name__}"}
+    value = dict(value, fetched_at=now)
+    _requests_cache.update(at=now, value=value)
+    return value
 
 
 def _supervisor() -> dict | None:
@@ -126,6 +148,7 @@ def payload() -> dict:
         "diagnostic": diagnosis,
         "supervisor": _supervisor(),
         "escalation": escalation,
+        "requests": _requests(),
         "provider_selection": model_registry.provider_selection_payload(),
         "worker": {
             "name": "agent-bridge-worker",

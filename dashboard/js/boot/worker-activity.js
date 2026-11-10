@@ -1,4 +1,5 @@
 import { renderWorkerEscalation } from "../abstract/worker-escalation-render.js";
+import { renderWorkerRequests } from "../abstract/worker-requests-render.js";
 // worker-activity.js — System Status > Worker Activity, and the sole reader of
 // /api/worker-activity.
 //
@@ -62,6 +63,7 @@ export function createWorkerActivity({ doc = document, win = window, http }) {
       terminal: null,
       legend: null,
       escalation: null,
+      requests: null,
     },
     isActive() {
       return WATCHING_VIEWS.some((id) =>
@@ -181,6 +183,13 @@ export function createWorkerActivity({ doc = document, win = window, http }) {
       if (escalation && this.drawn.escalation !== escalationSignature) {
         escalation.innerHTML = renderWorkerEscalation(p);
         this.drawn.escalation = escalationSignature;
+      }
+      // Gateway request supervision is cached server-side; redraw only on change.
+      const requestsSignature = JSON.stringify(p?.requests);
+      const requests = this.part("requests");
+      if (requests && this.drawn.requests !== requestsSignature) {
+        requests.innerHTML = renderWorkerRequests(p);
+        this.drawn.requests = requestsSignature;
       }
       const updated = this.part("updated");
       if (updated) {

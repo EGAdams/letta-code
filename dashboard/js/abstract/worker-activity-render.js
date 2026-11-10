@@ -11,6 +11,7 @@ import {
 import { renderWorkerActivityRows } from "./worker-activity-rows-render.js";
 
 import { renderWorkerEscalation } from "./worker-escalation-render.js";
+import { renderWorkerRequests } from "./worker-requests-render.js";
 
 const esc = TextUtils.esc;
 const fields = [
@@ -236,7 +237,7 @@ export function renderWorkerActivity(payload, options) {
   const updated = sourceTime
     ? `Last ledger update ${esc(sourceTime)}`
     : "Waiting for a worker ledger";
-  return `<div data-worker-part="health">${renderWorkerHealth(payload)}</div><div data-worker-part="provider">${renderWorkerProviderSelection(payload)}</div><div data-worker-part="escalation">${renderWorkerEscalation(payload)}</div><div data-worker-part="workflow">${renderWorkerWorkflow(payload, options)}</div><div data-worker-part="terminal">${renderWorkerTerminal(payload)}</div><div data-worker-part="tasks">${renderWorkerTasks(payload)}</div><p class="worker-activity-footer"><button type="button" data-worker-activity="refresh">Refresh now</button> <span class="am-dim" data-worker-part="updated">${updated}</span></p>`;
+  return `<div data-worker-part="health">${renderWorkerHealth(payload)}</div><div data-worker-part="provider">${renderWorkerProviderSelection(payload)}</div><div data-worker-part="escalation">${renderWorkerEscalation(payload)}</div><div data-worker-part="requests">${renderWorkerRequests(payload)}</div><div data-worker-part="workflow">${renderWorkerWorkflow(payload, options)}</div><div data-worker-part="terminal">${renderWorkerTerminal(payload)}</div><div data-worker-part="tasks">${renderWorkerTasks(payload)}</div><p class="worker-activity-footer"><button type="button" data-worker-activity="refresh">Refresh now</button> <span class="am-dim" data-worker-part="updated">${updated}</span></p>`;
 }
 
 export function workerTabClass(payload) {

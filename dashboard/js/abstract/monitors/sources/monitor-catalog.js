@@ -4,6 +4,7 @@ import { parseBridgePoll } from "./parsers/bridge-poll-parser.js";
 import { parseChatgptAccount } from "./parsers/chatgpt-account-parser.js";
 import { parseCodeStatus } from "./parsers/code-status-parser.js";
 import { parseCodexSync } from "./parsers/codex-sync-parser.js";
+import { parseGatewayRequests } from "./parsers/gateway-requests-parser.js";
 import { parseIntakeHalt } from "./parsers/intake-halt-parser.js";
 import { parseModelStats } from "./parsers/model-stats-parser.js";
 import { parsePcMetrics } from "./parsers/pc-metrics-parser.js";
@@ -136,6 +137,14 @@ export const MONITOR_CATALOG = Object.freeze([
     url: "/api/worker-activity",
     view: "donut",
     parse: parseWorkerActivity,
+  },
+  {
+    key: "gateway-requests",
+    group: "Bridge",
+    label: "Supervised requests",
+    url: "/api/worker-activity",
+    view: "list",
+    parse: parseGatewayRequests,
   },
   quota("w11-claude", "eg1972 claude"),
   quota("w11-codex", "eg1972 codex"),

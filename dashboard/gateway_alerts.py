@@ -34,6 +34,10 @@ KIND_TITLES = {
     'device_task_failed': 'a print or scan failed',
     'print_unconfirmed': 'a print was never confirmed',
     'print_ambiguous': 'a print may or may not have printed',
+    'request_stalled': 'a request has stopped making progress',
+    'request_blocked': 'a request is waiting on a blocker',
+    'status_loop': 'status checks are repeating with no action taken',
+    'request_watch_error': 'request supervision hit an error',
 }
 
 
@@ -75,6 +79,41 @@ class GatewayAlertSource:
         cards = [self._card(a) for a in payload['alerts']
                  if isinstance(a, dict) and a.get('alert_id') and not a.get('acknowledged')]
         return {'ok': True, 'reachable': True, 'alerts': cards}
+
+    def supervision(self, timeout: float = 6, opener=urllib.request.urlopen) -> dict[str, Any]:
+        """The gateway's supervised requests and its watch's health, for Worker Activity and
+        All Monitors. Read-only, with the worker token. Never raises; unavailable is said, never
+        shown as "no requests"."""
+        try:
+            with opener(self._request('/alerts', self._read_token_file), timeout=timeout) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+        except FileNotFoundError:
+            return {'available': False, 'reason': 'no worker token on this machine'}
+        except urllib.error.URLError as exc:
+            return {'available': False, 'reason': f'the gateway could not be asked ({exc.reason})'}
+        except Exception as exc:  # noqa: BLE001
+            return {'available': False, 'reason': f'{type(exc).__name__}'}
+        if not isinstance(payload, dict):
+            return {'available': False, 'reason': 'malformed gateway alerts reply'}
+        requests = payload.get('requests')
+        watch = payload.get('watch') if isinstance(payload.get('watch'), dict) else {}
+        alerts = [a for a in payload.get('alerts') or [] if isinstance(a, dict)]
+        out: dict[str, Any] = {
+            'available': isinstance(requests, dict),
+            'reason': '' if isinstance(requests, dict) else 'this gateway does not supervise requests yet',
+            'open': [], 'recently_closed': [], 'thresholds': {},
+            'watch': {'checked_at': payload.get('checked_at'), 'now': payload.get('now'),
+                      'checked_seconds_ago': watch.get('checked_seconds_ago'),
+                      'refresh_seconds': watch.get('refresh_seconds'),
+                      'unacknowledged': payload.get('unacknowledged'),
+                      'request_alerts': [a.get('alert_id') for a in alerts
+                                         if str(a.get('kind', '')).startswith(('request_', 'status_loop'))]},
+        }
+        if isinstance(requests, dict):
+            for key in ('open', 'recently_closed'):
+                out[key] = [r for r in requests.get(key) or [] if isinstance(r, dict)]
+            out['thresholds'] = requests.get('thresholds') if isinstance(requests.get('thresholds'), dict) else {}
+        return out
 
     @staticmethod
     def _card(alert: dict) -> dict[str, Any]:
