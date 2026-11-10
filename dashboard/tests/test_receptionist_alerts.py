@@ -80,4 +80,4 @@ def test_acknowledge_goes_to_the_named_receptionist():
 
 
 def test_default_sources_are_the_three_sidecars():
-    assert sorted(receptionist_alerts.sources()) == ['bridge', 'cashy', 'liz', 'sydney', 'toyota', 'yolanda']
+    assert sorted(receptionist_alerts.sources()) == ['bridge', 'cashy', 'factory', 'liz', 'sydney', 'toyota', 'yolanda']
