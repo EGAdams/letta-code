@@ -22,6 +22,8 @@ import statement_review
 import receptionist_alerts
 import toyota_service
 from voice import note_repository
+import notes_activity
+import notes_attachments
 import notes_bridge
 from receptionist_work import http_api as receptionist_work_api
 from scan_jobs import http_routes as scan_bridge_routes
@@ -114,6 +116,12 @@ class GetRoutesMixin:
                 'mailing_city_state': voice_config.MAILING_CITY_STATE,
                 'street_address_required': not bool(voice_config.MAILING_ADDRESS),
             })
+
+        if path in (notes_attachments.BROWSER_LIST, notes_attachments.BROWSER_FILE):
+            repository = note_repository.build_note_repository()
+            status, body, ctype, headers = notes_attachments.serve(
+                str(repository.directory), path, query, notes_activity.record)
+            return self._write(body, ctype, status, headers)
 
         if path == '/api/notes':
             repository = note_repository.build_note_repository()

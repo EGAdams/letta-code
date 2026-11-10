@@ -22,6 +22,11 @@ a stale one is a 409 and nothing changes -- ``create`` has nothing to
 collide with, and ``delete`` is soft (moves the note to ``.trash/``, see
 ``voice/note_repository.py``), so ``restore`` can always bring it back.
 
+PDF attachments (``notes_attachments.py``): ``GET``/``POST /notes/<f>/attachments`` lists or attaches
+(``{pdf_base64, title, name, sha256}``), ``GET /notes/<f>/attachments/<id>[?content=1]`` inspects (the
+sha256 is recomputed from disk; ``content=1`` adds the bytes), ``POST /notes/<f>/attachments/<id>/remove``
+removes softly. None of them reads or writes the note's own text.
+
 A caller may send ``X-Bridge-Task: t_<hex>`` so its events group under its
 Bridge task on the Worker Activity page.
 """
@@ -32,10 +37,11 @@ import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import notes_active_warning
 import notes_activity
+import notes_attachments
 import notes_bridge_core
 import notes_bridge_extras
 import notes_bridge_notes
@@ -57,6 +63,9 @@ _DELETE_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/delete$")
 _TRASH_LIST_PATH = re.compile(r"^/trash$")
 _TRASH_RESTORE_PATH = re.compile(r"^/trash/(?P<filename>[^/]+)/restore$")
 _TRASH_PURGE_PATH = re.compile(r"^/trash/(?P<filename>[^/]+)/purge$")
+_ATTACHMENTS_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/attachments$")
+_ATTACHMENT_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/attachments/(?P<attachment>[^/]+)$")
+_ATTACHMENT_REMOVE_PATH = re.compile(r"^/notes/(?P<filename>[^/]+)/attachments/(?P<attachment>[^/]+)/remove$")
 _TASK = re.compile(r"^t_[0-9a-f]{8,64}$")
 
 
@@ -105,6 +114,36 @@ def _json(code: int, payload: object) -> tuple[int, bytes]:
     return code, json.dumps(payload).encode()
 
 
+def _attachments(method, query, filename, list_match, one_match, remove_match, repository, approved, actor,
+                 task, body, log) -> tuple[int, bytes]:
+    """The PDF-attachment routes (notes_attachments.py): list/attach, inspect, remove. Same scope rule as a
+    note read or write; attaching to or removing from a protected note is refused like any other write."""
+    if not in_scope(filename, approved):
+        log("not_approved", filename=filename, actor=actor, detail="not on the approved list")
+        return _json(403, {"error": "note_not_approved",
+                           "message": "the Bridge reads and updates in-scope notes only"})
+    store = notes_attachments.AttachmentStore(str(repository.directory))
+    writing = bool(remove_match) or (bool(list_match) and method == "POST")
+    if (method != "POST") if writing else (method != "GET"):
+        return _json(405, {"error": "method_not_allowed"})
+    if writing and filename in protected_notes():
+        log("protected", filename=filename, actor=actor, detail="attachment change refused: note is protected")
+        return _json(403, {"error": "note_protected",
+                           "message": "this note is protected; attachment changes are refused"})
+    if list_match and method == "POST":
+        result = notes_attachments.bridge_attach(store, filename, body, task, actor)
+    elif list_match:
+        result = notes_attachments.bridge_list(store, filename)
+    elif remove_match:
+        result = notes_attachments.bridge_remove(store, filename, remove_match.group("attachment"), task, actor)
+    else:
+        wants = parse_qs(query).get("content", ["0"])[0] == "1"
+        result = notes_attachments.bridge_get(store, filename, one_match.group("attachment"), wants)
+    status, payload, event, fields = result
+    log(event, actor=actor, **fields)
+    return _json(status, payload)
+
+
 def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
              body: bytes = b"") -> tuple[int, bytes]:
     """Return ``(status, JSON bytes)`` for one authenticated Bridge request."""
@@ -121,7 +160,11 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
     highlights_match = _HIGHLIGHTS_PATH.match(suffix)
     rename_match = _RENAME_PATH.match(suffix)
     delete_match = _DELETE_PATH.match(suffix)
-    sub_match = export_match or email_match or highlights_match or rename_match or delete_match
+    attachments_match = _ATTACHMENTS_PATH.match(suffix)
+    attachment_match = _ATTACHMENT_PATH.match(suffix)
+    attachment_remove_match = _ATTACHMENT_REMOVE_PATH.match(suffix)
+    attach_any = attachments_match or attachment_match or attachment_remove_match
+    sub_match = export_match or email_match or highlights_match or rename_match or delete_match or attach_any
     main_match = None if sub_match else _PATH.match(suffix)
     any_match = main_match or sub_match or trash_list_match or trash_restore_match or trash_purge_match
     if not any_match:
@@ -166,6 +209,10 @@ def dispatch(method: str, path: str, headers: dict[str, str], client_ip: str,
             status, payload, event, fields = notes_bridge_notes.restore(repository, filename, body)
             log(event, actor=actor, **fields)
             return _json(status, payload)
+
+        if attach_any:
+            return _attachments(method, parsed.query, filename, attachments_match, attachment_match,
+                                attachment_remove_match, repository, approved, actor, task, body, log)
 
         if export_match or email_match or highlights_match:
             if method != "GET":

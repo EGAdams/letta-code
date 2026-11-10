@@ -6,6 +6,7 @@
 // nothing and said nothing. Once a new note is saved, the editor holds its
 // filename, so the next Save updates that file instead of creating a copy.
 import { MermaidView } from "../plans/mermaid-view.js";
+import { createNoteAttachments } from "./notes-attachments.js";
 
 const STARTER = `# Probate notes\n\n- Father: Louis Adams Sr.\n- PR: Louis Herbert Adams Jr.\n- Court-certified Letters of Authority in force: November 3, 2026\n- Deed distribution: not yet prepared\n\n## Verify\n\n- Verify the legal description.\n- Verify whether the estate actually closed.\n\n## Collaboration\n\nUse this note for decisions, questions, and handoffs with Lucia (Lucia is a female Spanish name and the notes/debug SME).\n`;
 
@@ -372,6 +373,11 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
   const preview = doc.getElementById("notes-editor-preview");
   const monitor = doc.getElementById("notes-editor-monitor");
   const refreshButton = doc.getElementById("notes-editor-refresh");
+  const attachments = createNoteAttachments({
+    doc,
+    http,
+    panel: doc.getElementById("notes-attachments"),
+  });
   let mermaidView;
   let selected = "";
   let revision = "";
@@ -450,6 +456,7 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
     landing.classList.add("hidden");
     editor.classList.remove("hidden");
     setStatus("");
+    attachments.show(filename);
     updatePreview();
     focusEditor();
   };
@@ -486,6 +493,7 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
       lastSavedText = textarea.value;
       markRead(selected, revision);
       await updatePreview();
+      await attachments.refresh();
       setStatus("Refreshed from persisted state.");
       if (hadFocus) textarea.focus();
     } catch (error) {
@@ -518,6 +526,7 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
   };
   const pollSelected = async () => {
     if (!selected || globalThis.document?.visibilityState === "hidden") return;
+    attachments.refresh();
     try {
       const result = await http.getJSON(noteURL(selected));
       if (result.revision === revision) return;
@@ -739,6 +748,7 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
     revision = result.revision || "";
     lastSavedText = textarea.value;
     markRead(selected, revision);
+    attachments.show(selected);
     title.textContent = result.filename;
     nameBox?.classList.add("hidden");
     setStatus(`Saved ${result.filename}.`);
@@ -792,6 +802,7 @@ export function createNotes({ doc, http, storage = globalThis.localStorage }) {
     }
   });
   doc.getElementById("notes-editor-back")?.addEventListener("click", () => {
+    attachments.clear();
     editor.classList.add("hidden");
     landing.classList.remove("hidden");
     load();

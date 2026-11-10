@@ -673,6 +673,12 @@ body.startup-loading .sidebar {
 .notes-preview p { margin: 0 0 10px; }
 .notes-preview pre, .notes-preview code { background: #f1f1f1; padding: 2px 4px; white-space: pre-wrap; }
 .notes-preview .notes-mermaid-source { color: #555; }
+/* PDF attachments under the editor (js/boot/notes-attachments.js). */
+.notes-attachments { margin: 10px 0; padding: 8px 10px; border: 1px solid var(--border, #bbb); background: #fff; }
+.notes-attachments h4 { margin: 0 0 6px; }
+.notes-attachment { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; }
+.notes-attachment-meta { color: #555; font-size: 0.9em; }
+.notes-attachment-action { text-decoration: none; }
 
 /* `{{color:name}}`/`{{highlight:name}}` spans (notes_formatting.py) rendered
    in the browser preview — square corners (no border-radius) on purpose, to
