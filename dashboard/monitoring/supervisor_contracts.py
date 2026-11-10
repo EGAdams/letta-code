@@ -53,3 +53,4 @@ class PublishedSupervisorState(BaseModel):
     coverage_complete: bool = False
     coverage_reason: str | None = None
     unknown_task_ids: list[str] = Field(default_factory=list)
+    gateway_watch: dict | None = None           # the gateway's own queue watch (runs off this machine)

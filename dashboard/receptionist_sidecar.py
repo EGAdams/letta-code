@@ -80,11 +80,11 @@ class ReceptionistCompactRequest(BaseModel):
 
 
 class ReceptionistAlertAckRequest(BaseModel):
-    """"Got it" on one failure alert: her sidecar marks it heard."""
+    """"Got it" on one failure alert: her sidecar (or, for 'bridge', the gateway) marks it heard."""
 
     model_config = ConfigDict(extra='forbid')
 
-    agent: Literal['toyota', 'sydney', 'cashy', 'yolanda', 'liz']
+    agent: Literal['toyota', 'sydney', 'cashy', 'yolanda', 'liz', 'bridge']
     ids: list[str] | None = Field(default=None, max_length=200)
 
 

@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import time
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
@@ -92,9 +93,36 @@ def gateway_head(package: Path, url: str, token_file: Path) -> Callable[[], str 
     return head
 
 
+def gateway_alerts(url: str, token_file: Path, timeout: float = 10) -> Callable[[], dict]:
+    """The one place that names the gateway's alert route: GET /alerts with the worker token, read-only."""
+    def read() -> dict:
+        request = urllib.request.Request(f"{url}/alerts", headers={
+            "Authorization": "Bearer " + token_file.read_text(encoding="utf-8").strip(),
+            "Accept": "application/json", "User-Agent": "adw-supervisor/1"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    return read
+
+
+def _gateway_watch(read: Callable[[], dict] | None) -> dict | None:
+    """The gateway's open alerts, trimmed for the state file. An unreachable gateway is said, never an all-clear."""
+    if read is None:
+        return None
+    try:
+        raw = read()
+    except Exception as error:  # noqa: BLE001 -- an unreachable gateway is a finding, not a crash
+        return {"ok": False, "error": f"gateway alerts could not be read ({type(error).__name__})"}
+    if not isinstance(raw, dict) or not isinstance(raw.get("alerts"), list):
+        return {"ok": False, "error": "gateway alerts reply was malformed"}
+    keep = ("alert_id", "kind", "task_id", "severity", "problem", "recommended_action", "duration", "acknowledged")
+    return {"ok": True, "checked_at": raw.get("checked_at"), "unacknowledged": raw.get("unacknowledged", 0),
+            "alerts": [{key: alert.get(key) for key in keep} for alert in raw["alerts"][:50] if isinstance(alert, dict)],
+            "workers": raw.get("workers") if isinstance(raw.get("workers"), list) else []}
+
+
 def run_cycle(
     *, ledger_path: Path, state_path: Path, thresholds: Thresholds, now: float,
-    reader: ITaskLedgerReader | None = None,
+    reader: ITaskLedgerReader | None = None, gateway_watch: Callable[[], dict] | None = None,
 ) -> dict:
     if ledger_path.resolve() == state_path.resolve():
         raise ValueError("state path must differ from the read-only ledger path")
@@ -115,11 +143,11 @@ def run_cycle(
             updated = evaluate_task(task, previous, thresholds, now, candidates)
             states[task["id"]] = updated.to_dict()
     unknown = [key for key, value in states.items() if value.get("observation_error")]
-    alerts = [{"task_id": key, "tier": value.get("tier", "ok"),
-               "observation_error": value.get("observation_error"),
+    alerts = [{"task_id": key, "tier": "incident" if value.get("failure") else value.get("tier", "ok"),
+               "observation_error": value.get("observation_error"), "failure": value.get("failure"),
                "recent_events": value.get("events", [])[-5:]}
               for key, value in states.items()
-              if value.get("tier") != "ok" or value.get("observation_error")]
+              if value.get("tier") != "ok" or value.get("observation_error") or value.get("failure")]
     snapshot = {
         "ok": tasks is not None and not observation.error and not observation.stale and not unknown,
         "source": observation.source, "generated_at": now, "heartbeat_at": now,
@@ -135,6 +163,9 @@ def run_cycle(
         # queued only at the gateway is counted. A lower bound (the gateway shows only the head).
         "queued_count": sum(1 for task in (tasks or []) if task.get("status") in {"queued", "pending"}),
         "models": models,
+        # The gateway's own queue watch, which keeps running while this machine is down. Read here so the
+        # alerts it raised during an outage are on this machine's dashboard the moment it is back.
+        "gateway_watch": _gateway_watch(gateway_watch),
     }
     _atomic_write(state_path, snapshot)
     return snapshot
@@ -153,13 +184,15 @@ def main() -> None:
     if token_file.is_file() and not os.environ.get("ADW_SUPERVISOR_NO_GATEWAY"):
         reader = GatewayAwareLedgerReader(reader, gateway_head(
             package, os.environ.get("BRIDGE_GATEWAY_URL", DEFAULT_GATEWAY_URL), token_file))
+    watch = (gateway_alerts(os.environ.get("BRIDGE_GATEWAY_URL", DEFAULT_GATEWAY_URL), token_file)
+             if token_file.is_file() and not os.environ.get("ADW_SUPERVISOR_NO_GATEWAY") else None)
     interval = float(os.environ.get("ADW_SUPERVISOR_POLL_SECONDS", "20"))
     if not 1 <= interval <= 3600:
         parser.error("poll interval must be between 1 and 3600 seconds")
     thresholds = Thresholds.from_env()
     while True:
         result = run_cycle(ledger_path=ledger, state_path=state, thresholds=thresholds,
-                           now=time.time(), reader=reader)
+                           now=time.time(), reader=reader, gateway_watch=watch)
         print(json.dumps({key: result[key] for key in ("ok", "source", "ledger_error", "coverage_reason")}), flush=True)
         if args.once:
             break

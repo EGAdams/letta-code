@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from monitoring.task_timing import idle_age
+from monitoring.task_timing import epoch, idle_age
 
 Tier = Literal["ok", "warn", "recommend", "diagnose", "incident"]
 TIER_ORDER: tuple[Tier, ...] = ("ok", "warn", "recommend", "diagnose", "incident")
@@ -30,6 +30,19 @@ RECOMMENDATION_TEXT: dict[Tier, str] = {
         "This supervisor still will not act on the bridge or the worker."
     ),
 }
+
+FAILURE_MESSAGE = (
+    "The task ended {status}. RECOMMENDATION: tell the person who asked for it and read its error before "
+    "doing anything else. This supervisor will not resubmit it; a print is never resent without asking EG."
+)
+# A failure older than this is history, not news: the ledger keeps hundreds of finished rows.
+FAILURE_RECENT_SECONDS = 86400.0
+# Statuses that end a task badly. Before 2026-11-10 these were dropped with the successes, so a failed
+# print or a timed-out ADW reached nobody.
+FAILED_STATUSES = ("failed", "timed_out")
+# The notes log's rows for dashboard activity that is not a task outcome (a read, a highlight). Nothing
+# to escalate; they were 43 of 45 "unknown status" alerts on 2026-11-10.
+INFORMATIONAL_STATUSES = ("unknown",)
 
 NO_PROGRESS_MESSAGE = (
     "Two consecutive cycles with no status or attempt change while escalated. "
@@ -100,6 +113,7 @@ class TaskEscalationState:
     last_progress: str | None = None
     last_observed_at: float | None = None
     events: list[dict] = field(default_factory=list)
+    failure: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -112,6 +126,7 @@ class TaskEscalationState:
             "last_progress": self.last_progress,
             "last_observed_at": self.last_observed_at,
             "events": self.events[-MAX_EVENTS:],
+            "failure": self.failure,
         }
 
     @classmethod
@@ -133,6 +148,7 @@ class TaskEscalationState:
             last_progress=raw.get("last_progress"),
             last_observed_at=raw.get("last_observed_at") if isinstance(raw.get("last_observed_at"), (int, float)) else None,
             events=[e for e in events if isinstance(e, dict)][-MAX_EVENTS:] if isinstance(events, list) else [],
+            failure=raw.get("failure") if isinstance(raw.get("failure"), dict) else None,
         )
 
 
@@ -150,8 +166,12 @@ def evaluate_task(
     age = idle_age(task, now)
     progress = str(task.get("last_progress_at") or task.get("last_update") or task.get("current") or "")
 
+    if status in INFORMATIONAL_STATUSES:
+        return TaskEscalationState(last_status=status, last_attempts=attempts)
     if status not in ("queued", "pending", "running", "claimed", "succeeded", "failed", "cancelled", "timed_out", "completed"):
         return replace(prior, observation_error="Task status is unknown or unsupported.")
+    if status in FAILED_STATUSES:
+        return _failed(task, prior, status, attempts, now)
     if status not in ("queued", "pending", "running", "claimed"):
         return TaskEscalationState(last_status=status, last_attempts=attempts)
     if age is None:
@@ -194,3 +214,20 @@ def evaluate_task(
         no_progress_cycles=min(no_progress, 2), last_progress=progress,
         last_observed_at=now, events=events[-MAX_EVENTS:],
     )
+
+
+def _failed(task: dict, prior: TaskEscalationState, status: str, attempts: float | None,
+            now: float) -> TaskEscalationState:
+    """A recent failure is an alert with one event, recorded once; an old one is quiet history."""
+    ended = epoch(task.get("completed_at") or task.get("last_update"))
+    if ended is None or now - ended > FAILURE_RECENT_SECONDS:
+        return TaskEscalationState(last_status=status, last_attempts=attempts)
+    error = task.get("error")
+    failure = {"status": status, "ended_at": ended, "agent": task.get("agent"), "operation": task.get("operation"),
+               "error": str(error)[:300] if error else None, "message": FAILURE_MESSAGE.format(status=status)}
+    events = list(prior.events)
+    if prior.failure is None:
+        events.append({"at": now, "tier": "incident", "task_id": task.get("id"), "signal": "failed",
+                       "message": failure["message"]})
+    return TaskEscalationState(last_status=status, last_attempts=attempts, last_observed_at=now,
+                               events=events[-MAX_EVENTS:], failure=failure)

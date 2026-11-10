@@ -6,30 +6,42 @@ dashboard's ReceptionistFailureAlert, which shows, speaks and notifies each
 one on whatever tab is open, and passes "Got it" back to the sidecar that
 raised it.
 
-Programmed against IReceptionistSidecar only; the addresses are each
-profile module's BRIDGE.
+Programmed against IAlertSource only: each profile module's BRIDGE, plus
+the Star Trek Bridge gateway's own queue watch (gateway_alerts), which raises
+its alerts from off this machine and so still has them after an outage.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import sydney_service
 import cashy_service
 import yolanda_service
 import liz_service
 import toyota_service
-from receptionist_sidecar import IReceptionistSidecar, ReceptionistAlertAckRequest
+import gateway_alerts
+from receptionist_sidecar import ReceptionistAlertAckRequest
 
 
-def sources() -> dict[str, IReceptionistSidecar]:
+class IAlertSource(Protocol):
+    """The part of a sidecar this module uses; SidecarBridge and GatewayAlertSource both satisfy it."""
+
+    name: str
+
+    def alerts(self) -> dict[str, Any]: ...
+
+    def acknowledge_alerts(self, ids: list[str] | None) -> dict[str, Any]: ...
+
+
+def sources() -> dict[str, IAlertSource]:
     # A function, not a constant, so a test's rebind of BRIDGE is seen.
     return {'toyota': toyota_service.BRIDGE, 'sydney': sydney_service.BRIDGE,
             'cashy': cashy_service.BRIDGE, 'yolanda': yolanda_service.BRIDGE,
-            'liz': liz_service.BRIDGE}
+            'liz': liz_service.BRIDGE, 'bridge': gateway_alerts.from_environment()}
 
 
-def collect(bridges: dict[str, IReceptionistSidecar] | None = None) -> dict[str, Any]:
+def collect(bridges: dict[str, IAlertSource] | None = None) -> dict[str, Any]:
     """Every pending alert, each tagged with whose it is. Never raises.
 
     A sidecar that is down is left to Server Management; one that is up but
@@ -47,5 +59,5 @@ def collect(bridges: dict[str, IReceptionistSidecar] | None = None) -> dict[str,
 
 
 def acknowledge(request: ReceptionistAlertAckRequest,
-                bridges: dict[str, IReceptionistSidecar] | None = None) -> dict[str, Any]:
+                bridges: dict[str, IAlertSource] | None = None) -> dict[str, Any]:
     return (bridges or sources())[request.agent].acknowledge_alerts(request.ids)

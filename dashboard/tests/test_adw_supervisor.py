@@ -254,3 +254,55 @@ def test_task_stuck_behind_a_busy_worker_escalates_end_to_end(tmp_path):
         seen[elapsed] = snap["tasks"][task]["tier"]
     assert seen == {0: "ok", 130: "warn", 310: "recommend", 610: "diagnose", 1810: "incident"}
     assert snap["coverage_complete"] and snap["alerts"][0]["task_id"] == task
+
+
+def test_a_recent_failure_is_an_alert_recorded_once():
+    task = {"id": "t_p", "status": "failed", "attempts": 1, "agent": "printer", "operation": "print",
+            "error": "not printed. no default printer is set", "last_update": 1000.0}
+    first = sup.evaluate_task(task, sup.TaskEscalationState(), THRESHOLDS, now=1060.0)
+    assert first.failure["error"] == "not printed. no default printer is set"
+    assert len(first.events) == 1 and first.events[0]["signal"] == "failed"
+    again = sup.evaluate_task(task, first, THRESHOLDS, now=1080.0)
+    assert len(again.events) == 1, "not repeated every cycle"
+    assert sup.TaskEscalationState.from_dict(again.to_dict()).failure == again.failure
+
+
+def test_an_old_failure_is_history_not_an_alert():
+    task = {"id": "t_old", "status": "timed_out", "last_update": 0.0}
+    state = sup.evaluate_task(task, sup.TaskEscalationState(), THRESHOLDS, now=200000.0)
+    assert state.failure is None and state.events == []
+
+
+def test_notes_activity_without_an_outcome_is_not_an_unknown_status_alert():
+    state = sup.evaluate_task({"id": "notes-1", "status": "unknown"}, sup.TaskEscalationState(), THRESHOLDS, now=5.0)
+    assert state.observation_error is None and state.tier == "ok"
+
+
+def test_run_cycle_lists_failures_and_the_gateway_watch(tmp_path, monkeypatch):
+    monkeypatch.setattr(sup, "_worker_diagnostic", lambda tasks, now: None)
+    monkeypatch.setattr(sup, "_worker_lanes", lambda now: None)
+    monkeypatch.setattr(sup.model_registry, "registry", lambda: [])
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps([{"id": "t_p", "status": "failed", "attempts": 1, "last_update": 1000.0},
+                                       {"id": "notes-1", "status": "unknown"}]))
+    now = ledger_path.stat().st_mtime
+    ledger_path.write_text(json.dumps([{"id": "t_p", "status": "failed", "attempts": 1, "last_update": now - 30},
+                                       {"id": "notes-1", "status": "unknown"}]))
+    now = ledger_path.stat().st_mtime
+    gateway = {"checked_at": 1, "unacknowledged": 1, "workers": [],
+               "alerts": [{"alert_id": "al_1", "kind": "task_queued_too_long", "task_id": "t_q", "severity": "notice",
+                           "problem": "stuck", "recommended_action": "wait", "duration": "6 min", "acknowledged": False,
+                           "details": {"big": "x" * 10}}]}
+    snapshot = sup.run_cycle(ledger_path=ledger_path, state_path=tmp_path / "s.json", thresholds=THRESHOLDS, now=now,
+                             gateway_watch=lambda: gateway)
+    assert [a["task_id"] for a in snapshot["alerts"]] == ["t_p"]
+    assert snapshot["alerts"][0]["tier"] == "incident"
+    assert snapshot["unknown_task_ids"] == []
+    assert snapshot["gateway_watch"]["alerts"][0]["alert_id"] == "al_1"
+    assert "details" not in snapshot["gateway_watch"]["alerts"][0]
+
+    def down():
+        raise OSError("offline")
+    snapshot = sup.run_cycle(ledger_path=ledger_path, state_path=tmp_path / "s.json", thresholds=THRESHOLDS, now=now + 1,
+                             gateway_watch=down)
+    assert snapshot["gateway_watch"] == {"ok": False, "error": "gateway alerts could not be read (OSError)"}
