@@ -738,7 +738,10 @@ class PostRoutesMixin:
                 request = ReceptionistAlertAckRequest.model_validate_json(body)
             except ValidationError as e:
                 return self.error_response(f'invalid request: {e}', 400)
-            return self.json_response(receptionist_alerts.acknowledge(request))
+            alert_sources = receptionist_alerts.sources()
+            if request.agent not in alert_sources:
+                return self.error_response(f'invalid request: no alert source named {request.agent!r}', 400)
+            return self.json_response(receptionist_alerts.acknowledge(request, alert_sources))
 
         if path == '/api/agent-reset-messages':
             try:

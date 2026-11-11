@@ -80,11 +80,17 @@ class ReceptionistCompactRequest(BaseModel):
 
 
 class ReceptionistAlertAckRequest(BaseModel):
-    """"Got it" on one failure alert: her sidecar (for 'bridge' the gateway, for 'factory' the watchdog's card) marks it heard."""
+    """"Got it" on one failure alert: her sidecar (for 'bridge' the gateway, for 'factory' the watchdog's card) marks it heard.
+
+    ``agent`` is any alert source's name. Which names exist is decided only by
+    ``receptionist_alerts.sources()``; the ack route rejects one it does not
+    list. A second hand-kept list here once left a new source's cards
+    impossible to clear: every "Got it" was refused and the card came back.
+    """
 
     model_config = ConfigDict(extra='forbid')
 
-    agent: Literal['toyota', 'sydney', 'cashy', 'yolanda', 'liz', 'bridge', 'factory']
+    agent: str = Field(min_length=1, max_length=64)
     ids: list[str] | None = Field(default=None, max_length=200)
 
 
