@@ -93,7 +93,8 @@ const scenarios = {
     state = await until('lookup-2 is running', s => box(s, 'lookup-2')?.status === 'running')
     check(box(state, 'lookup-2').background === COLOURS.running, 'running is yellow')
     check(JSON.stringify(state.top.map(e => [e.instance, e.status, e.background])) === JSON.stringify(state.bottom.map(e => [e.instance, e.status, e.background])), 'upper and lower boxes match')
-    check(!box(state, 'prepare'), 'a completed column was replaced by the next active set')
+    check(box(state, 'prepare')?.status === 'pass' && box(state, 'prepare').background === COLOURS.pass, 'a completed column stays on screen, green, beside the next active phase')
+    check(state.top[0]?.instance === '@runner', 'the ADW runner is the first participant')
     check(state.top.filter(entry => entry.text.startsWith('lookup')).length >= 1 && box(state, 'lookup-2').instance !== `${run}:lookup-1`, 'same-named phases keep separate identities')
     await page.click(`.sd-box[data-edge="bottom"][data-instance="${run}:lookup-2"]`)
     state = await until('the terminal is filtered to lookup-2', s => !s.legacyVisible && s.logLabel.includes(`${run}:lookup-2`))
@@ -168,12 +169,12 @@ const scenarios = {
       const state = await snapshot()
       if (state.status !== 'running') break
       check(state.run === first, 'the active selection was not stolen')
-      check(state.top.every(entry => entry.instance.startsWith(`${first}:`) || entry.instance.startsWith(`${first}_`)), 'no column from the other run')
+      check(state.top.every(entry => entry.instance === '@runner' || entry.instance.startsWith(`${first}:`) || entry.instance.startsWith(`${first}_`)), 'no column from the other run')
       await sleep(200)
     }
     await a
     const state = await until('view moved to the still-running second run', s => s.run === second)
-    check(state.top.every(entry => entry.instance.startsWith(second)), 'identities did not mix after the switch')
+    check(state.top.every(entry => entry.instance === '@runner' || entry.instance.startsWith(second)), 'identities did not mix after the switch')
     await b
     return `runs ${first} then ${second}`
   },

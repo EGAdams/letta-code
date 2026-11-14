@@ -48,7 +48,8 @@ const LEGEND = [
     </p>
 
     <SequenceDiagram v-if="view.diagram.columns.length" :model="view.diagram"
-                     @phase-click="props.controller.selectPhase($event)" />
+                     @phase-click="props.controller.selectPhase($event)"
+                     @runner-click="props.controller.allEvents()" />
     <p v-else class="adwdbg-idle" data-field="idle">
       {{ view.runId ? 'This run has not constructed a phase yet.' : 'No pilot ADW run has been recorded yet.' }}
     </p>

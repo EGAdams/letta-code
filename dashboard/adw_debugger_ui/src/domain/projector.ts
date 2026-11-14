@@ -1,16 +1,12 @@
 // Reducer: (state, feed page) -> next state. Pure -- no clock, no DOM, no network.
 // The input state is never modified; a page with nothing new returns it unchanged.
 import type { DebugEvent, DebugRun, FeedPage } from "../contracts";
-import {
-  phaseEnded,
-  phaseStarted,
-  refreshVisible,
-  renameColumn,
-} from "./columns";
+import { refreshVisible, renameColumn } from "./columns";
 import {
   type DebuggerState,
   MAX_LOG_LINES,
   type PhaseState,
+  RUNNER,
   type RunState,
 } from "./state";
 
@@ -34,7 +30,6 @@ function newRun(run: DebugRun): RunState {
     phases: {},
     instanceOfPhase: {},
     arrows: [],
-    recent: [],
     visible: [],
   };
 }
@@ -91,11 +86,37 @@ function bind(run: RunState, event: DebugEvent): PhaseState {
   return phase;
 }
 
+function pushArrow(
+  run: RunState,
+  event: DebugEvent,
+  from: string,
+  to: string,
+  text: string,
+  dashed: boolean,
+): void {
+  run.arrows.push({
+    id: event.event_id,
+    cursor: event.cursor,
+    at: Date.parse(event.recorded_at) || 0,
+    kind: event.kind,
+    from,
+    to,
+    text,
+    dashed,
+  });
+}
+
+/** Tool calls, their results, progress notes and messages: one row each, as recorded. */
 function recordArrow(
   run: RunState,
   event: DebugEvent,
   instanceId: string,
 ): void {
+  if (event.kind === "progress") {
+    if (event.message)
+      pushArrow(run, event, instanceId, instanceId, event.message, false);
+    return;
+  }
   if (
     event.kind !== "tool_call" &&
     event.kind !== "tool_result" &&
@@ -104,15 +125,20 @@ function recordArrow(
     return;
   const crossPhase =
     event.kind === "message" && event.source_instance && event.target_instance;
-  run.arrows.push({
-    id: event.event_id,
-    cursor: event.cursor,
-    kind: event.kind,
-    from: crossPhase ? event.source_instance : instanceId,
-    to: crossPhase ? event.target_instance : instanceId,
-    text: event.message,
-    dashed: event.kind === "tool_result",
-  });
+  pushArrow(
+    run,
+    event,
+    crossPhase ? event.source_instance : instanceId,
+    crossPhase ? event.target_instance : instanceId,
+    event.message,
+    event.kind === "tool_result",
+  );
+}
+
+function seconds(fromMs: number, toMs: number): string {
+  if (!fromMs || !toMs) return "";
+  const ms = Math.max(0, toMs - fromMs);
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 function applyEvent(run: RunState, event: DebugEvent): void {
@@ -154,7 +180,18 @@ function applyEvent(run: RunState, event: DebugEvent): void {
     phase.outcome = event.status;
     phase.endedAt = at;
     phase.started = true;
-    phaseEnded(run, phase.instanceId);
+    // The runner gets the outcome back: the dashed return arrow.
+    pushArrow(
+      run,
+      event,
+      phase.instanceId,
+      RUNNER,
+      [event.status, seconds(phase.startedAt, at), phase.error]
+        .filter(Boolean)
+        .join(" · "),
+      true,
+    );
+    refreshVisible(run);
     return;
   }
   if (event.kind === "waiting") {
@@ -175,7 +212,9 @@ function applyEvent(run: RunState, event: DebugEvent): void {
     phase.started = true;
     phase.startedAt = at;
     if (event.kind === "phase_start") phase.phaseId = event.phase_id;
-    phaseStarted(run);
+    // The runner starts the phase: the solid call arrow.
+    pushArrow(run, event, RUNNER, phase.instanceId, phase.name, false);
+    refreshVisible(run);
     return;
   }
   refreshVisible(run);

@@ -62,11 +62,21 @@ starts the monitored seven-phase filing ADW. No scan or filing is simulated.
 
 ## Which columns are on screen
 
-`src/domain/columns.ts`. Active = executing phases plus constructed instances
-still waiting to run. A finished phase keeps its colour until the next phase
-starts, then leaves. When nothing is active the column set is frozen, so the
-last diagram stays up. Arrows are drawn only when both ends are on screen and,
-for cross-phase arrows, only when the event recorded both ends.
+`src/domain/columns.ts` and `src/domain/view.ts`. Column 0 is the ADW runner
+(`@runner`, named after the ADW); after it, every phase of the run in start
+order, finished ones included, so a finished run reads top to bottom as its
+whole story. The UI is Vue components only, no Mermaid: `ParticipantBox`,
+`Lifeline`, `ActivationBar`, `MessageArrow` and `TimeAxis` under
+`src/ui/sequence/`, laid out after heichong/vue-sequence-diagram (MIT).
+
+Arrows come from three sources. The projector draws the run's lifecycle
+itself, because an ADW like Scala's records no tool calls or messages: runner
+-> phase (solid, the phase name) when a phase starts, a self-call for each
+non-empty `progress` message, and phase -> runner (dashed, `status · 1.2s`
+plus any error) when it ends. Recorded tool calls and messages are drawn as
+before, only when both ends are on screen. An activation bar runs from a
+phase's first row to its return; it stays open (pulsing) while the phase has
+no outcome. The left axis is time since the run's first event.
 
 ## Patterns used
 

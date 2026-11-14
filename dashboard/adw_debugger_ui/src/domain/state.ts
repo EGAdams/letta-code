@@ -23,9 +23,14 @@ export interface PhaseState {
   error: string;
 }
 
+/** The ADW itself: the participant that starts each phase and receives its outcome. */
+export const RUNNER = "@runner";
+
 export interface ArrowState {
   id: string;
   cursor: number;
+  /** recorded_at as epoch ms (0 when unparseable). */
+  at: number;
   kind: string;
   from: string;
   to: string;
@@ -53,7 +58,6 @@ export interface RunState {
   phases: Record<string, PhaseState>;
   instanceOfPhase: Record<string, string>;
   arrows: ArrowState[];
-  recent: string[];
   visible: string[];
 }
 

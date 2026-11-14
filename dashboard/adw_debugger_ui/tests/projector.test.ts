@@ -46,7 +46,7 @@ describe("projector", () => {
     });
   });
 
-  it("keeps a finished column until the next phase starts, then replaces it", () => {
+  it("keeps every phase of the run on screen, finished ones included", () => {
     let state = feed(emptyState(), "r1", [
       ...constructed("r1", "a", "a"),
       ...constructed("r1", "b", "b"),
@@ -56,7 +56,7 @@ describe("projector", () => {
     expect(names(state, "r1")).toEqual(["r1:a", "r1:b"]);
     expect(state.runs.r1.phases["r1:a"].outcome).toBe("pass");
     state = feed(state, "r1", started("r1", "b", "b", 2));
-    expect(names(state, "r1")).toEqual(["r1:b"]);
+    expect(names(state, "r1")).toEqual(["r1:a", "r1:b"]);
   });
 
   it("retains the last diagram when nothing is active any more", () => {
@@ -174,6 +174,7 @@ describe("projector", () => {
       "r1:lookup-2",
     ]);
     expect(state.runs.r1.arrows.map((a) => [a.from, a.to, a.dashed])).toEqual([
+      ["@runner", "r1:lookup-1", false],
       ["r1:lookup-1", "r1:lookup-1", false],
       ["r1:lookup-1", "r1:lookup-1", true],
     ]);
@@ -198,8 +199,30 @@ describe("projector", () => {
       }),
     ]);
     expect(state.runs.r1.arrows.map((a) => [a.from, a.to])).toEqual([
+      ["@runner", "r1:a"],
       ["r1:a", "r1:b"],
       ["r1:a", "r1:a"],
+    ]);
+  });
+
+  it("draws the runner starting each phase, its progress, and the outcome coming back", () => {
+    let state = feed(emptyState(), "r1", [
+      ...constructed("r1", "a", "a"),
+      ...started("r1", "a", "a", 1, 0),
+      ev("r1", "progress", {
+        phase_id: "r1_01_a",
+        instance_id: "r1:a",
+        message: "duplicate",
+        t: 1,
+      }),
+    ]);
+    state = feed(state, "r1", ended("r1", "a", "a", 1, "pass", 2));
+    expect(
+      state.runs.r1.arrows.map((a) => [a.kind, a.from, a.to, a.text, a.dashed]),
+    ).toEqual([
+      ["phase_start", "@runner", "r1:a", "a", false],
+      ["progress", "r1:a", "r1:a", "duplicate", false],
+      ["phase_end", "r1:a", "@runner", "pass · 2.0s", true],
     ]);
   });
 

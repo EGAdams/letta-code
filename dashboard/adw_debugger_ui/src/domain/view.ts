@@ -14,6 +14,7 @@ import {
   isTerminal,
   type LogLine,
   type PhaseState,
+  RUNNER,
   type RunState,
 } from "./state";
 
@@ -119,6 +120,37 @@ export function columnFor(
   };
 }
 
+const RUNNER_STATUS: Record<RunStatus, PhaseStatus> = {
+  running: "running",
+  success: "pass",
+  fail: "fail",
+  interrupted: "stalled",
+};
+
+/** The ADW itself, drawn as the left-most participant. */
+function runnerColumn(run: RunState, now: number): DiagramColumn {
+  const status = RUNNER_STATUS[run.status] ?? "waiting";
+  const startedMs = Date.parse(run.startedAt) || 0;
+  const endedMs = run.endedAt ? Date.parse(run.endedAt) || now : now;
+  return {
+    instanceId: RUNNER,
+    kind: "runner",
+    name: run.adwName,
+    attempt: null,
+    status,
+    statusLabel: LABEL[status],
+    detail: elapsed(startedMs, endedMs),
+    purpose: `ADW run ${run.runId}: starts each phase and receives its outcome`,
+    selected: false,
+  };
+}
+
+function offset(fromMs: number, atMs: number): string {
+  if (!fromMs || !atMs) return "";
+  const ms = Math.max(0, atMs - fromMs);
+  return ms >= 10_000 ? `+${(ms / 1000).toFixed(1)} s` : `+${ms} ms`;
+}
+
 export function diagramFor(
   run: RunState | undefined,
   now: number,
@@ -127,11 +159,11 @@ export function diagramFor(
   selectedInstance: string | null,
 ): DiagramModel {
   if (!run) return { runId: "", columns: [], rows: [] };
-  const columns = run.visible
+  const phases = run.visible
     .map((id) => run.phases[id])
     .filter(Boolean)
-    .map((phase) =>
-      columnFor(
+    .map((phase) => ({
+      ...columnFor(
         phase,
         run,
         now,
@@ -139,21 +171,44 @@ export function diagramFor(
         stall,
         phase.instanceId === selectedInstance,
       ),
-    );
+      kind: "phase" as const,
+    }));
+  if (phases.length === 0) return { runId: run.runId, columns: [], rows: [] };
+  const columns: DiagramColumn[] = [runnerColumn(run, now), ...phases];
   const index = new Map(
     columns.map((column, position) => [column.instanceId, position]),
   );
+  const runStartMs = Date.parse(run.startedAt) || (run.arrows[0]?.at ?? 0);
   // Only arrows whose two ends are both on screen are drawn; the rest stay in the terminal.
-  const rows = run.arrows
+  const arrows = run.arrows
     .filter((arrow) => index.has(arrow.from) && index.has(arrow.to))
-    .map((arrow) => ({
-      id: arrow.id,
-      from: index.get(arrow.from)!,
-      to: index.get(arrow.to)!,
-      text: arrow.text,
-      dashed: arrow.dashed,
-      kind: arrow.kind,
-    }));
+    .sort((a, b) => a.cursor - b.cursor);
+  const rows = arrows.map((arrow) => ({
+    id: arrow.id,
+    from: index.get(arrow.from)!,
+    to: index.get(arrow.to)!,
+    text: arrow.text,
+    dashed: arrow.dashed,
+    kind: arrow.kind,
+    elapsed: offset(runStartMs, arrow.at),
+  }));
+  // Activation bars: from the row that started a phase to the row that returned its outcome.
+  for (const column of columns) {
+    if (column.kind === "runner") {
+      column.activeFrom = rows.length ? 0 : null;
+      column.activeTo = run.status === "running" ? null : rows.length - 1;
+      continue;
+    }
+    const at = index.get(column.instanceId)!;
+    const first = rows.findIndex((row) => row.to === at || row.from === at);
+    const end = rows.findIndex(
+      (row) => row.kind === "phase_end" && row.from === at,
+    );
+    const phase = run.phases[column.instanceId];
+    column.activeFrom = phase?.started && first >= 0 ? first : null;
+    // No recorded outcome (running, stalled, interrupted): the bar stays open to the bottom.
+    column.activeTo = end >= 0 ? end : null;
+  }
   return { runId: run.runId, columns, rows };
 }
 

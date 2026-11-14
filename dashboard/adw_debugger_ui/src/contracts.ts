@@ -135,8 +135,13 @@ export interface ILegacyTerminal {
   setVisible(visible: boolean): void;
 }
 
+/**
+ * One participant. `runner` is the ADW itself, which starts every phase and
+ * receives its outcome; `phase` is one phase instance.
+ */
 export interface DiagramColumn {
   instanceId: string;
+  kind?: "runner" | "phase";
   name: string;
   attempt: number | null;
   status: PhaseStatus;
@@ -144,6 +149,10 @@ export interface DiagramColumn {
   detail: string;
   purpose: string;
   selected: boolean;
+  /** Row index where this participant's activation bar starts; null = never active. */
+  activeFrom?: number | null;
+  /** Row index where it ends; null while still open (the bar runs to the last row). */
+  activeTo?: number | null;
 }
 
 export interface DiagramRow {
@@ -153,6 +162,8 @@ export interface DiagramRow {
   text: string;
   dashed: boolean;
   kind: string;
+  /** Time since the run started, for the left-hand axis ("+120 ms"). */
+  elapsed?: string;
 }
 
 export interface DiagramModel {

@@ -154,8 +154,11 @@ function harness() {
   };
 }
 
+/** Phase participants only; the ADW runner column is checked on its own. */
+const phaseColumns = (view: DebuggerView) =>
+  view.diagram.columns.filter((column) => column.kind === "phase");
 const statuses = (view: DebuggerView) =>
-  view.diagram.columns.map((column) => `${column.name}:${column.status}`);
+  phaseColumns(view).map((column) => `${column.name}:${column.status}`);
 
 describe("controller", () => {
   it("is honestly idle with nothing recorded, and Clear says why it is disabled", () => {
@@ -184,7 +187,7 @@ describe("controller", () => {
     h.clock.advance(121);
     h.timer.fire();
     expect(statuses(h.view())).toEqual(["a:stalled", "b:waiting"]);
-    expect(h.view().diagram.columns[0].detail).toBe(
+    expect(phaseColumns(h.view())[0].detail).toBe(
       "2m 1s -- no progress for 121s (timeout 120s)",
     );
     h.source.push(
@@ -303,7 +306,7 @@ describe("controller", () => {
     expect(h.legacy.visible).toBe(true);
   });
 
-  it("keeps a phase filter after its column has left the diagram", () => {
+  it("keeps a finished phase's column and its phase filter as the next phase runs", () => {
     const h = harness();
     h.source.push(
       page(
@@ -322,7 +325,7 @@ describe("controller", () => {
         [...ended("r1", "a", "a", 1, "pass"), ...started("r1", "b", "b", 2)],
       ),
     );
-    expect(statuses(h.view())).toEqual(["b:running"]);
+    expect(statuses(h.view())).toEqual(["a:pass", "b:running"]);
     expect(h.view().filterLabel).toBe("Run r1 -- phase a (r1:a, attempt 1)");
     expect(h.view().lines.at(-1)?.kind).toBe("phase_end");
   });
@@ -340,9 +343,13 @@ describe("controller", () => {
       runStatus: "interrupted",
       mode: "pinned",
     });
-    expect(h.view().diagram.columns[0]).toMatchObject({
+    expect(phaseColumns(h.view())[0]).toMatchObject({
       status: "stalled",
       detail: "process ended without recording an outcome; no cleanup recorded",
+    });
+    expect(h.view().diagram.columns[0]).toMatchObject({
+      kind: "runner",
+      status: "stalled",
     });
   });
 
