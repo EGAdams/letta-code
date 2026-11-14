@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class DebuggerSettings(BaseModel):
     db_path: str
-    adw_names: list[str] = Field(default_factory=lambda: ['adw_debug_pilot'])
+    adw_names: list[str] = Field(default_factory=lambda: ['adw_debug_pilot', 'adw_interface_scala_file_scan'])
     stall_timeout_seconds: float = 120.0
     bootstrap_runs: int = 5
     page_limit: int = 1000

@@ -48,12 +48,17 @@ left exactly as it was.
 | Key | Env | Default |
 |---|---|---|
 | `stall_timeout_seconds` | `ADW_DEBUGGER_STALL_SECONDS` | `120` |
-| `adw_names` | `ADW_DEBUGGER_ADWS` (comma separated) | `["adw_debug_pilot"]` |
+| `adw_names` | `ADW_DEBUGGER_ADWS` (comma separated) | `["adw_debug_pilot", "adw_interface_scala_file_scan"]` |
 | `db_path` | `ADW_DEBUGGER_DB` | `~/agent_blocks/adws/adw_data/sssf.db` |
 | `bootstrap_runs` | | `5` |
 
 Adding an ADW to the debugger is one name in `adw_names`. To get waiting
-columns, purposes and cleanup evidence it wraps its phases in `MonitoredPhase`.
+columns, purposes and cleanup evidence the pilot wraps its steps in `MonitoredPhase`.
+Scala wraps her existing IPhase objects in `adw_modules.monitored_phase.MonitoredSssfPhase`;
+this preserves their handles, params and results. Its cleanup event means only
+that the monitor scope closed, not that business resources were disposed.
+The normal freezer/window scan path stages a document and `scala-scanner.service`
+starts the monitored seven-phase filing ADW. No scan or filing is simulated.
 
 ## Which columns are on screen
 

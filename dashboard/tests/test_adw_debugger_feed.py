@@ -140,3 +140,17 @@ def test_old_runs_beyond_the_bootstrap_window_are_left_out_unless_running(trace)
         trace.run(f'done{index}', status='success', started=f'2026-11-1{index}T00:00:00+00:00')
     ids = [run.run_id for run in feed(trace, bootstrap_runs=2).read(None).runs]
     assert ids == ['old-running', 'done2', 'done3']
+
+
+def test_scala_is_visible_by_default_alongside_the_pilot(trace):
+    trace.run('scala', adw='adw_interface_scala_file_scan', status='success')
+    trace.event('scala', 'log', {'adw_debug': {'kind': 'constructed',
+                'instance_id': 'scala:read_text', 'phase_name': 'read_text', 'class_name': 'ReadTextPhase'}})
+    trace.event('scala', 'phase_start', {}, 'scala_03_read_text', 'read_text')
+    trace.event('scala', 'phase_end', {'status': 'success'}, 'scala_03_read_text', 'read_text')
+    trace.run('pilot', status='success')
+    trace.run('excluded', adw='adw_bridge_worker')
+    result = feed(trace).read(None)
+    assert {run.adw_name for run in result.runs} == {'adw_debug_pilot', 'adw_interface_scala_file_scan'}
+    assert [e.kind for e in result.events] == ['constructed', 'phase_start', 'phase_end']
+    assert result.events[-1].status == 'pass'
