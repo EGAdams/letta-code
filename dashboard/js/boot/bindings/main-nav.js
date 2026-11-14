@@ -2,7 +2,8 @@
 //
 // Most main-nav targets are a plain view switch; the sections that open a sub-nav
 // (Status, Agent Management, Project Plans, Agent Blocks, Process Flows,
-// ROL Finance) hide the main nav and hand off to that section's own landing.
+// ROL Finance, Debugger) hide the main nav and hand off to that section's own
+// landing.
 
 export function bindMainNav({
   doc,
@@ -138,6 +139,16 @@ export function bindMainNav({
         return;
       }
 
+      if (target === "debugger" && nav.debugger) {
+        openSubNav(
+          nav.main,
+          nav.debugger,
+          '[data-nav="debugger"]',
+          "debugger-adw-parent",
+        );
+        return;
+      }
+
       viewNav.setActive(nav.main, '[data-nav="main"][data-target]', tab);
       viewNav.activateView(target);
     });
@@ -215,8 +226,28 @@ export function bindMainNav({
     viewNav.returnToHome(nav.status);
   });
 
+  // Debugger sub-nav (ADW Parent / ADW Child / ADW Agent): plain view
+  // switches, no polling or ADW dispatch of their own yet.
+  nav.debugger
+    ?.querySelectorAll('[data-nav="debugger"][data-target]')
+    .forEach((tab) => {
+      tab.addEventListener("click", () => {
+        viewNav.setActive(
+          nav.debugger,
+          '[data-nav="debugger"][data-target]',
+          tab,
+        );
+        viewNav.activateView(tab.dataset.target);
+      });
+    });
+
   const backAgentBlocks = doc.getElementById("btn-back-agent-blocks");
   backAgentBlocks?.addEventListener("click", () =>
     viewNav.returnToHome(nav.agentBlocks),
+  );
+
+  const backDebugger = doc.getElementById("btn-back-debugger");
+  backDebugger?.addEventListener("click", () =>
+    viewNav.returnToHome(nav.debugger),
   );
 }

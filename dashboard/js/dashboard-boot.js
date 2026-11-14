@@ -46,6 +46,7 @@ import {
   AdwPromptDialog,
   CodeChangeAlert,
   DomChatGptProviderAccountController,
+  DomNavLiveSync,
   DomTabFactory,
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
@@ -203,6 +204,10 @@ bindNavigation({
 });
 
 /* ─────────────────────────  Background watchers  ───────────────────────── */
+
+// Keeps an already-open dashboard's sidebar in sync with dashboard.html on
+// disk (new top-level tab + its view) without the user needing to reload.
+new DomNavLiveSync({ http, doc, nav, viewNav }).start();
 
 // Sidebar agent tab colours: activity every 5s, structural health every 30s.
 agentTabStatus.start();

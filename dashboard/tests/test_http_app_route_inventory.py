@@ -27,7 +27,7 @@ GET_ROUTES = [
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
     '/api/agents', '/api/chatgpt-provider-account-status',
     '/api/claude-sdk-account', '/api/claude-sdk-activity',
-    '/api/claude-sdk-token-rate', '/api/code-status',
+    '/api/claude-sdk-token-rate', '/api/code-status', '/api/nav-status',
     '/api/codex-sync-status', '/api/expense-stored-events', '/api/intake-halt',
     '/api/intake-state',
     '/api/mazda-mode', '/api/messages', '/api/model-stats',
@@ -44,7 +44,7 @@ GET_ROUTES = [
     '/api/notes',
     '/api/vendor-keys', '/api/voice-media-backend', '/api/wsl-interop',
     '/api/agent-bridge-poll',
-    '/api/printer', '/api/worker-activity',
+    '/api/printer', '/api/worker-activity', '/api/adw-debugger/feed',
     '/report-source-document',
     '/api/scan-bridge/v1/scans', '/api/scan-bridge/v1/scans/scan_01ARZ3NDEKTSV4RRFFQ69G5FAV',
 ]

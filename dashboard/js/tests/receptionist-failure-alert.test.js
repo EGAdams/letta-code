@@ -74,6 +74,31 @@ describe("ReceptionistFailureAlert", () => {
     expect(t.notified.length).toBe(1);
   });
 
+  test("the same task from two alert sources gets one card but both alerts remain acknowledgeable", async () => {
+    const t = setup({
+      ok: true,
+      alerts: [
+        { ...PLAN, agent: "sydney", task_id: "20bf19be" },
+        {
+          ...PLAN,
+          id: "bridge-20bf19be",
+          agent: "bridge",
+          task_id: "20bf19be",
+          severity: "urgent",
+          title: "Bridge task failed",
+        },
+      ],
+      errors: [],
+    });
+    await t.alert.poll();
+    expect(t.cards()).toHaveLength(1);
+    t.cards()[0].children[2].click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(t.posts).toHaveLength(2);
+    expect(t.cards()).toHaveLength(0);
+  });
+
   test("Got it acknowledges on the right sidecar and removes the card", async () => {
     const t = setup({ ok: true, alerts: [PLAN], errors: [] });
     await t.alert.poll();

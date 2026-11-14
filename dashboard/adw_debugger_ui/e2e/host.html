@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ADW debugger test host</title>
+  <link rel="stylesheet" href="/js/adw-debugger/adw-debugger.css">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .terminal-toolbar { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+    #terminal-stream { box-sizing: border-box; height: 30vh; overflow-y: auto; padding: 10px 12px; background: #000;
+      color: #fff; font: 13px/1.5 ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <section id="terminal" class="view active">
+    <h2>Terminal</h2>
+    <div class="terminal-toolbar">
+      <button type="button" class="am-btn" id="terminal-clear">Clear</button>
+      <span id="terminal-status" class="terminal-status">Test host</span>
+    </div>
+    <div id="terminal-stream" role="log"><div class="terminal-line">existing terminal line (test host)</div></div>
+  </section>
+  <script type="module" src="/js/adw-debugger/adw-debugger.js"></script>
+</body>
+</html>

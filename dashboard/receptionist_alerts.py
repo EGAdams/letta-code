@@ -8,9 +8,11 @@ raised it.
 
 Programmed against IAlertSource only: each profile module's BRIDGE, plus
 the Star Trek Bridge gateway's own queue watch (gateway_alerts), which raises
-its alerts from off this machine and so still has them after an outage, and
-the factory watchdog (factory_alerts), which watches the workers and both
-supervisors on this machine and is itself watched by its heartbeat.
+its alerts from off this machine and so still has them after an outage, the
+factory watchdog (factory_alerts), which watches the workers and both
+supervisors on this machine and is itself watched by its heartbeat, and the
+independent ADW task supervisor's own per-task problems (adw_task_alerts),
+which were previously visible only on the Worker Activity page's table.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import liz_service
 import toyota_service
 import gateway_alerts
 import factory_alerts
+import adw_task_alerts
 from receptionist_sidecar import ReceptionistAlertAckRequest
 
 
@@ -42,7 +45,8 @@ def sources() -> dict[str, IAlertSource]:
     return {'toyota': toyota_service.BRIDGE, 'sydney': sydney_service.BRIDGE,
             'cashy': cashy_service.BRIDGE, 'yolanda': yolanda_service.BRIDGE,
             'liz': liz_service.BRIDGE, 'bridge': gateway_alerts.from_environment(),
-            'factory': factory_alerts.from_environment()}
+            'factory': factory_alerts.from_environment(),
+            'adw_tasks': adw_task_alerts.from_environment()}
 
 
 def collect(bridges: dict[str, IAlertSource] | None = None) -> dict[str, Any]:

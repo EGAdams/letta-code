@@ -1,0 +1,19 @@
+.terminal-toolbar { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.terminal-status { font-size: .82rem; color: #555; }
+.terminal-status-ok { color: #2b9b55; }
+.terminal-status-error { color: #c62828; }
+#terminal-stream {
+  box-sizing: border-box;
+  width: 100%;
+  height: 70vh;
+  min-height: 320px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: #000;
+  color: #fff;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+}
+.terminal-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.terminal-line-gap { color: #ffcc66; }
+.terminal-empty { color: #888; }

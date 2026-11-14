@@ -2,12 +2,17 @@
 //
 // One row per attachment on the open note: its title, file name, size, pages and the start of its sha256, with
 // three controls -- View PDF (the real PDF, inline, in a new tab), Download (the same bytes as a download) and
-// Print (the PDF loaded into a hidden same-origin frame and printed from there; if the browser will not print a
-// frame, the PDF opens in a new tab so its own Print button is one click away). The list is read from the
+// Print. Print never opens Chrome's own print dialog -- that dialog cannot be driven by browser automation, so
+// a click there used to leave no Windows job and no outbox document. It instead hands the exact, hash-verified
+// PDF to the same printer workflow as the Printer tab's test page (monitoring/printer_panel.py ->
+// adws/adw_printer.py), on the printer id typed into the box above the list. That id is remembered in
+// localStorage, since this machine has no default Windows printer to fall back on. The list is read from the
 // dashboard, never from browser storage, so what it shows is what is stored on disk. Nothing here edits the note.
 
 const LIST = "/api/notes/attachments";
 const FILE = "/api/notes/attachment-file";
+const PRINT = "/api/printer/attachment-print";
+const PRINTER_ID_KEY = "notes-attachment-printer-id";
 
 export function attachmentFileURL(filename, id, { download = false } = {}) {
   const query = new URLSearchParams({ filename, id });
@@ -27,11 +32,34 @@ export function createNoteAttachments({ doc, http, panel, win = globalThis }) {
   if (!panel)
     return { show: async () => {}, refresh: async () => {}, clear: () => {} };
 
+  const printerIdField = doc.createElement("input");
+  printerIdField.type = "text";
+  printerIdField.className = "notes-attachment-printer-id";
+  printerIdField.placeholder = "Printer id (see the Printer tab)";
+  try {
+    printerIdField.value = win.localStorage?.getItem(PRINTER_ID_KEY) || "";
+  } catch (_) {
+    printerIdField.value = "";
+  }
+  printerIdField.addEventListener("change", () => {
+    try {
+      win.localStorage?.setItem(PRINTER_ID_KEY, printerIdField.value.trim());
+    } catch (_) {
+      // No persistence (private browsing, disabled storage): still usable
+      // for this session, just not remembered for next time.
+    }
+  });
+  const printerIdLabel = doc.createElement("label");
+  printerIdLabel.className = "notes-attachment-printer-id-label";
+  printerIdLabel.textContent = "Printer: ";
+  printerIdLabel.appendChild(printerIdField);
+
   const list = doc.createElement("div");
   list.className = "notes-attachments-list";
   const heading = doc.createElement("h4");
   heading.textContent = "Attachments";
   panel.appendChild(heading);
+  panel.appendChild(printerIdLabel);
   panel.appendChild(list);
 
   const link = (label, href, extra = {}) => {
@@ -43,26 +71,29 @@ export function createNoteAttachments({ doc, http, panel, win = globalThis }) {
     return a;
   };
 
-  const print = (url) => {
-    const frame = doc.createElement("iframe");
-    frame.className = "notes-attachment-print-frame";
-    frame.setAttribute("title", "PDF being printed");
-    frame.style.position = "fixed";
-    frame.style.width = "1px";
-    frame.style.height = "1px";
-    frame.style.opacity = "0";
-    frame.style.border = "0";
-    frame.addEventListener("load", () => {
-      try {
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
-      } catch (_) {
-        win.open?.(url, "_blank", "noopener");
-      }
-      setTimeout(() => frame.remove(), 60000);
-    });
-    frame.setAttribute("src", url);
-    doc.body?.appendChild(frame);
+  const sendToPrinter = async (filename, item, status, printButton) => {
+    const printerId = printerIdField.value.trim();
+    if (!printerId) {
+      status.textContent =
+        "Enter a printer id above (see the Printer tab) — nothing was sent.";
+      return;
+    }
+    printButton.disabled = true;
+    status.textContent = "Sending to the printer workflow…";
+    try {
+      const answer = await http.postJSON(
+        PRINT,
+        { filename, attachment: item.id, printer_id: printerId, confirm: true },
+        { timeout: 30000 },
+      );
+      status.textContent = answer.ok
+        ? answer.message || "Sent to the printer workflow."
+        : `Not sent: ${answer.message || "unknown error"}`;
+    } catch (e) {
+      status.textContent = `Not sent: ${e.message}`;
+    } finally {
+      printButton.disabled = false;
+    }
   };
 
   const row = (filename, item) => {
@@ -93,10 +124,12 @@ export function createNoteAttachments({ doc, http, panel, win = globalThis }) {
     printButton.type = "button";
     printButton.className = "am-btn notes-attachment-action";
     printButton.textContent = "Print";
+    const status = doc.createElement("span");
+    status.className = "notes-attachment-print-status am-dim";
     printButton.addEventListener("click", () =>
-      print(attachmentFileURL(filename, item.id)),
+      sendToPrinter(filename, item, status, printButton),
     );
-    box.append(name, meta, view, download, printButton);
+    box.append(name, meta, view, download, printButton, status);
     return box;
   };
 

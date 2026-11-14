@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 # the owner (rule 3) and a runtime rebind is still seen — `from x import f` would
 # snapshot f here and quietly neuter both.
 import adw_prompts
+from adw_debugger import feed as adw_debugger_feed
 import codex_sync_status
 import document_annotation
 import model_stats_mute
@@ -52,6 +53,7 @@ from monitoring.win10_node import WIN10_CONTAINERS
 from paths import ADW_GENERATED_DIR, HERE, REPO_ROOT
 from intake.statuses import ScannerIntakeStatusResponse
 
+from . import nav_status
 from . import services as srv
 from . import voice_admission
 from .registry import current_ports
@@ -106,6 +108,10 @@ class GetRoutesMixin:
 
         if path == '/api/code-status':
             return self.json_response(srv.get_code_status())
+        if path == '/api/nav-status':
+            # Polled by DomNavLiveSync (js/implementation/dom-nav-live-sync.js)
+            # so an already-open dashboard notices a sidebar change itself.
+            return self.json_response(nav_status.nav_signature_payload())
         if path == '/api/agents':
             return self.json_response(srv.build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
@@ -313,6 +319,9 @@ class GetRoutesMixin:
 
         if path == '/api/printer':
             return self.json_response(printer_panel.printer_payload(query.get('refresh', [''])[0] == '1'))
+
+        if path == '/api/adw-debugger/feed':
+            return self.json_response(adw_debugger_feed.payload(query))
 
         if path == '/api/worker-activity':
             return self.json_response(worker_activity.payload())

@@ -23,6 +23,7 @@ export function collectNavElements(doc = document) {
     scanners: doc.getElementById("nav-scanners"),
     modelStats: doc.getElementById("nav-model-stats"),
     pcMonitor: doc.getElementById("nav-pc-monitor"),
+    debugger: doc.getElementById("nav-debugger"),
   };
 }
 

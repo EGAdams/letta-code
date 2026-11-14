@@ -46,6 +46,7 @@ from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from monitoring import agent_bridge_poll_edit
 from monitoring import worker_restart
+from monitoring import terminal_clear
 from monitoring import printer_panel
 from monitoring import ssh_checks
 from pydantic import ValidationError
@@ -55,6 +56,7 @@ from voice import (config, latency_log, note_factory, note_repository,
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
+import notes_attachments
 import notes_bridge
 from . import voice_admission
 from .registry import current_ports
@@ -233,6 +235,24 @@ class PostRoutesMixin:
                 return self.json_response(printer_panel.start_test_print(data))
             return self.json_response(printer_panel.cancel_job(data))
 
+        if path == '/api/printer/attachment-print':
+            # Shape only here; adws/adw_printer.py owns every printing rule.
+            # notes_attachments resolves and re-verifies the PDF's sha256
+            # before its path ever reaches the printer workflow -- never the
+            # note's Markdown, and never a browser print dialog.
+            try:
+                data = json.loads(body) if body.strip() else {}
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            if not isinstance(data, dict):
+                return self.error_response('Expected a JSON object', 400)
+
+            def resolve(payload):
+                notes_dir = str(note_repository.build_note_repository().directory)
+                return notes_attachments.resolve_for_print(notes_dir, payload)
+
+            return self.json_response(printer_panel.start_document_print(data, resolve))
+
         if path == '/api/server-action':
             try:
                 data = json.loads(body)
@@ -296,6 +316,9 @@ class PostRoutesMixin:
             result = current_ports().scanner.clear_verification_lock(
                 data.get('scanner', ''))
             return self.json_response(result)
+
+        if path == '/api/terminal-clear':
+            return self.json_response(terminal_clear.clear())
 
         if path == '/api/scanner-archive-path':
             try:

@@ -22,6 +22,7 @@ from monitoring import model_registry
 from monitoring import worker_restart
 from monitoring import worker_lanes
 from monitoring import worker_supervisor
+from monitoring import terminal_clear
 
 DEFAULT_SNAPSHOT = Path(os.path.expanduser("~/.cache/agent_bridge/worker_activity.json"))
 SNAPSHOT_STALE_SECONDS = 60
@@ -138,8 +139,13 @@ def payload() -> dict:
         "tasks": tasks or [],
         "tasks_available": tasks is not None,
         "tasks_error": error,
+        "ledger_error": error,
         "snapshot_updated_at": snapshot_updated_at,
         "snapshot_stale": snapshot_stale,
+        "ledger_stale": (
+            "The worker task ledger is stale; showing its last recorded events."
+            if snapshot_stale else False
+        ),
         # These are deliberately different signals: ledger queue depth is not
         # a count of processes. systemd owns the latter for this one worker.
         "queue_depth": queue_depth,
@@ -162,4 +168,5 @@ def payload() -> dict:
             "configured": worker_restart.configured(),
             "service": worker_restart.SERVICE,
         },
+        "terminal_clear_epoch": terminal_clear.epoch(),
     }

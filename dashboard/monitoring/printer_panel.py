@@ -12,6 +12,12 @@ imports printer code. Its last stdout line is `PRINTER_RESULT {json}`.
   says `{"confirm": true}` and printing is switched on
   (`~/.config/startrek_printer/enabled`). There is no way to send text from
   here. It answers with the job id straight away; the print runs on.
+* `start_document_print()` prints an already-stored file (a note's PDF
+  attachment, so far) instead of the fixed test page. Same `{"confirm": true}`
+  and switch rule, plus an explicit `printer_id` -- this machine has no
+  Windows default printer, so one is never guessed. The file itself is
+  resolved by an injected `resolve(data) -> (path, title)`, so this module
+  never has to import notes_attachments.
 * `cancel_job()` asks the ADW to cancel one job by id.
 """
 
@@ -122,6 +128,43 @@ def start_test_print(data: dict, launch=None) -> dict:
 def _launch_test_page(job_id: str) -> None:
     def work() -> None:
         _run(['print', '--job-id', job_id], stdin='{"kind": "test_page"}', timeout=PRINT_TIMEOUT)
+        _forget()
+    threading.Thread(target=work, name=f'print-{job_id}', daemon=True).start()
+
+
+def start_document_print(data: dict, resolve, launch=None) -> dict:
+    """Print an already-stored file -- so far, a note's PDF attachment -- rather than the fixed test
+    page. `resolve(data) -> (path, title)` is injected so this module never imports notes_attachments;
+    it raises `LookupError` for anything this module should refuse (a bad id, a damaged file, a note
+    that is not found), and that message is returned to the caller unchanged. `launch(job_id, stdin)`
+    is injected the same way as the test page's; it defaults to a background thread.
+
+    `printer_id` is required, not defaulted: this machine has no Windows default printer, so guessing
+    one would either fail silently or print on whichever queue happened to answer first.
+    """
+    if data.get('confirm') is not True:
+        return {'ok': False, 'message': 'Printing needs {"confirm": true}; nothing was printed.'}
+    if not ENABLED_FLAG.exists():
+        return {'ok': False, 'message': 'Printing is switched off on this computer; nothing was printed.'}
+    printer_id = data.get('printer_id')
+    if not isinstance(printer_id, str) or not printer_id.strip():
+        return {'ok': False, 'message': 'A printer_id is required; this computer has no default printer.'}
+    try:
+        path, title = resolve(data)
+    except LookupError as exc:
+        return {'ok': False, 'message': str(exc)}
+    job_id = new_job_id()
+    stdin = json.dumps({'kind': 'document_file', 'path': path, 'title': title, 'printer_id': printer_id})
+    (launch or _launch_document)(job_id, stdin)
+    _forget()
+    return {'ok': True, 'job_id': job_id,
+            'message': f'"{title}" handed to the printer workflow on {printer_id}. Its status shows '
+                       'below; leaving the Windows queue is not proof that paper came out.'}
+
+
+def _launch_document(job_id: str, stdin: str) -> None:
+    def work() -> None:
+        _run(['print', '--job-id', job_id], stdin=stdin, timeout=PRINT_TIMEOUT)
         _forget()
     threading.Thread(target=work, name=f'print-{job_id}', daemon=True).start()
 

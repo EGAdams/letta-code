@@ -54,6 +54,15 @@ def test_payload_round_trips_the_service_dict_from_agent_bridge_poll(tmp_path, m
     assert [lane["lane"] for lane in result["workers"]] == ["general", "express"]
 
 
+def test_payload_exposes_terminal_clear_epoch_without_changing_the_ledger(tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_activity, "DEFAULT_SNAPSHOT", tmp_path / "missing.json")
+    monkeypatch.setattr(worker_activity.terminal_clear, "DEFAULT_STATE", tmp_path / "clear.json")
+    monkeypatch.setattr(worker_restart, "configured", lambda: False)
+    result = worker_activity.payload()
+    assert result["terminal_clear_epoch"] == 0
+    assert not (tmp_path / "clear.json").exists()
+
+
 def test_escalation_is_honestly_unavailable_without_a_supervisor_state_file(tmp_path, monkeypatch):
     monkeypatch.setattr(worker_activity, "DEFAULT_ESCALATION_STATE", tmp_path / "missing.json")
     monkeypatch.delenv("ADW_SUPERVISOR_STATE_PATH", raising=False)

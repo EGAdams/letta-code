@@ -1,128 +1,86 @@
-"""Integration tests for check-image supporting document workflow."""
-import os
-from pathlib import Path
-from unittest.mock import Mock
+"""Integration tests for check-image supporting document workflow.
 
-import pytest
+The slot stores nothing on the expense row: a row qualifies when its
+description names a check number, and the document is the statement's
+companion ``<statement>_images.pdf`` beside the source PDF.
+"""
+import os
 
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 
 
+def _statement_with_check_images(monkeypatch, tmp_path, *, with_images=True):
+    """A statement PDF the report resolves to, and its companion if asked."""
+    import server
+
+    statement = tmp_path / "fifth_third_bank_5938_march.pdf"
+    statement.write_bytes(b"PDF")
+    companion = tmp_path / "fifth_third_bank_5938_march_images.pdf"
+    if with_images:
+        companion.write_bytes(b"PDF")
+    monkeypatch.setattr(
+        server, '_source_document_path',
+        lambda report_path, receipt_path=None: str(statement))
+    return server, str(companion)
+
+
+REPORT_PATH = '/rol_finances_reports/march/march_statement/report.html'
+
+
 def test_check_image_slot_in_catalog():
-    """Verify check_image slot is registered."""
+    """Verify check_image slot is registered, once, with no stored field."""
     slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind("check_image")
     assert slot is not None
     assert slot.kind == "check_image"
-    assert slot.expense_field == "check_number"
+    assert slot.expense_field == ""
     assert slot.label == "View Check Image"
     assert slot.falls_back_to_page_scan is False
+    kinds = [s.kind for s in SUPPORTING_DOCUMENT_CATALOG.slots()]
+    assert kinds.count("check_image") == 1
 
 
 def test_check_image_reference_resolution(monkeypatch, tmp_path):
-    """Test _check_image_reference finds check-images PDF in report directory."""
-    # Create mock report structure
-    report_dir = tmp_path / "march_statement"
-    report_dir.mkdir()
-    report_html = report_dir / "report.html"
-    report_html.write_text("<html>Report</html>")
-    check_images = report_dir / "fifth_third_bank_5938_march_check_images.pdf"
-    check_images.write_bytes(b"PDF")
+    """A check row resolves to the statement's companion images PDF."""
+    server, companion = _statement_with_check_images(monkeypatch, tmp_path)
 
-    # Mock server functions
-    import server
+    chosen = {'description': 'Check 3987', 'id': 123}
 
-    def mock_split(path):
-        if 'march_statement' in path:
-            return str(tmp_path), 'march_statement/report.html'
-        return str(tmp_path), path.lstrip('/')
+    result = server._slot_reference(chosen, 'check_image', REPORT_PATH)
 
-    monkeypatch.setattr(server, '_split_report_url', mock_split)
-
-    chosen = {'check_number': '3987', 'id': 123}
-    report_path = '/rol_finances_reports/march/march_statement/report.html'
-
-    result = server._check_image_reference(chosen, report_path)
-
-    assert result
-    assert 'check' in result.lower()
-    assert 'image' in result.lower()
-    assert result.endswith('.pdf')
+    assert result == companion
+    assert result.endswith('_images.pdf')
     assert os.path.isfile(result)
 
 
 def test_check_image_reference_extracts_from_description(monkeypatch, tmp_path):
-    """Check number extracted from description when field is empty."""
-    report_dir = tmp_path / "march_statement"
-    report_dir.mkdir()
-    check_images = report_dir / "bank_statement_check_images.pdf"
-    check_images.write_bytes(b"PDF")
+    """The check number is recognised inside a longer description."""
+    server, companion = _statement_with_check_images(monkeypatch, tmp_path)
 
-    import server
+    chosen = {'description': 'Payment via check #4068', 'id': 123}
 
-    def mock_split(path):
-        return str(tmp_path), 'march_statement/report.html'
+    result = server._slot_reference(chosen, 'check_image', REPORT_PATH)
 
-    monkeypatch.setattr(server, '_split_report_url', mock_split)
-
-    chosen = {
-        'check_number': '',
-        'description': 'Payment via check #4068',
-        'id': 123,
-    }
-    report_path = '/rol-finances/march_statement/report.html'
-
-    result = server._check_image_reference(chosen, report_path)
-
-    assert result
+    assert result == companion
     assert os.path.isfile(result)
 
 
 def test_check_image_reference_fails_without_check_number(monkeypatch, tmp_path):
     """No reference when check number missing."""
-    report_dir = tmp_path / "march_statement"
-    report_dir.mkdir()
-    check_images = report_dir / "bank_check_images.pdf"
-    check_images.write_bytes(b"PDF")
+    server, _ = _statement_with_check_images(monkeypatch, tmp_path)
 
-    import server
+    chosen = {'description': 'Bank transaction', 'id': 123}
 
-    def mock_split(path):
-        return str(tmp_path), 'march_statement/report.html'
-
-    monkeypatch.setattr(server, '_split_report_url', mock_split)
-
-    chosen = {
-        'check_number': '',
-        'description': 'Bank transaction',
-        'id': 123,
-    }
-    report_path = '/rol-finances/march_statement/report.html'
-
-    result = server._check_image_reference(chosen, report_path)
-
-    assert result == ''
+    assert server._slot_reference(chosen, 'check_image', REPORT_PATH) == ''
 
 
 def test_check_image_reference_fails_without_pdf(monkeypatch, tmp_path):
-    """No reference when check-images PDF doesn't exist."""
-    report_dir = tmp_path / "march_statement"
-    report_dir.mkdir()
-    # Create a non-matching file to ensure the search logic is correct
-    (report_dir / "report.html").write_text("<html></html>")
+    """No reference when the companion images PDF doesn't exist."""
+    server, _ = _statement_with_check_images(
+        monkeypatch, tmp_path, with_images=False)
 
-    import server
+    chosen = {'description': 'Check 3987', 'id': 123}
 
-    def mock_split(path):
-        return str(tmp_path), 'march_statement/report.html'
-
-    monkeypatch.setattr(server, '_split_report_url', mock_split)
-
-    chosen = {'check_number': '3987', 'id': 123}
-    report_path = '/rol-finances/march_statement/report.html'
-
-    result = server._check_image_reference(chosen, report_path)
-
-    assert result == ''
+    assert server._slot_reference(chosen, 'check_image', REPORT_PATH) == ''
 
 
 def test_expense_annotation_evidence_includes_check_reference_terms():
@@ -133,8 +91,7 @@ def test_expense_annotation_evidence_includes_check_reference_terms():
         'id': 123,
         'expense_date': '2025-03-15',
         'amount': '80.00',
-        'description': 'Check payment',
-        'check_number': '3987',
+        'description': 'Check 3987',
         'id_light': 'vendor',
     }
 

@@ -129,6 +129,7 @@ def _scan_bridge_unauthorized():
 #: symptom of forgetting is not a red test — it is a green one that took 30
 #: seconds and touched the network.
 DIRECT_SERVICES = {
+    'adw_debugger.feed': ('payload',),
     'scan_jobs.http_routes': ('scan_bridge_dispatch',),
     'receptionist_work.http_api': ('state', 'execute', 'claim', 'training_search',
                                   'training_categories', 'training_edit', 'document_path', 'trace'),

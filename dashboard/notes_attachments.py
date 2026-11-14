@@ -104,6 +104,12 @@ class AttachmentStore:
             raise AttachmentRefused("damaged", "the stored PDF no longer matches its recorded sha256")
         return self._public(entry), data
 
+    def verified_path(self, note: str, attachment: str) -> tuple[dict, str]:
+        """Like ``content``, but for a caller (printing) that hands the file to another process rather
+        than reading the bytes itself: same integrity check, the on-disk path instead of the bytes."""
+        entry, _data = self.content(note, attachment)
+        return entry, self._pdf_path(attachment)
+
     # ---- writes ------------------------------------------------------------------------------------------
 
     def attach(self, note: str, data: bytes, title: str = "", name: str = "", declared_sha256: str = "",
@@ -226,6 +232,23 @@ class AttachmentStore:
         keys = ("id", "note", "title", "filename", "sha256", "bytes", "pages", "content_type", "added_at",
                 "added_by", "task_id", "removed", "removed_at")
         return {k: entry[k] for k in keys if k in entry}
+
+
+def resolve_for_print(notes_dir: str, data: dict) -> tuple[str, str]:
+    """``(path, title)`` for the printer workflow (monitoring/printer_panel.py). ``data`` must name an
+    existing, intact attachment via ``filename``/``attachment``; anything else raises ``LookupError``
+    with a message the printer workflow surfaces to the caller unchanged. The PDF's sha256 is
+    re-checked against the index right before its path is handed to another process, so a damaged
+    file is refused here rather than printed wrong.
+    """
+    filename, attachment = data.get("filename"), data.get("attachment")
+    if not isinstance(filename, str) or not filename or not isinstance(attachment, str) or not attachment:
+        raise LookupError("filename and attachment are required.")
+    try:
+        entry, path = AttachmentStore(notes_dir).verified_path(filename, attachment)
+    except (FileNotFoundError, AttachmentRefused) as exc:
+        raise LookupError(f"Could not print: {exc}") from exc
+    return path, entry["filename"]
 
 
 # ---- Bridge handlers ( notes_bridge.dispatch calls these after auth, scope and protection checks ) ----------

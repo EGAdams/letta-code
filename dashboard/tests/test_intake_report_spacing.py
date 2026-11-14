@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -7,8 +8,10 @@ DASHBOARD_DIR = Path(__file__).resolve().parents[1]
 def test_intake_report_loads_focused_form_stylesheets():
     css = (DASHBOARD_DIR / "css" / "finance" / "intake_report.css").read_text()
 
-    assert '@import url("./manual-entry.css?v=20260903")' in css
-    assert '@import url("./mazda-mode.css?v=20260903")' in css
+    # The ?v= value changes whenever either sheet is edited; only the imports
+    # themselves are this test's concern.
+    assert re.search(r'@import url\("\./manual-entry\.css\?v=\w+"\)', css)
+    assert re.search(r'@import url\("\./mazda-mode\.css\?v=\w+"\)', css)
 
 
 def test_manual_entry_uses_three_pixel_vertical_spacing_and_collapses_empty_rows():

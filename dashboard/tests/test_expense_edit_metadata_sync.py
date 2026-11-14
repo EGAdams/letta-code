@@ -105,7 +105,8 @@ def test_edit_with_no_receipt_metadata_still_works():
     # Should not crash
     result = repo.apply_edit(edit_cmd)
 
-    # Should still update receipt_metadata with new id_light
+    # The row's own id_light still follows the relocated receipt...
+    assert result.record.id_light == 'kroger_08_20_26_22_50'
     updates = [
         (sql, params) for sql, params in connection.cur.executed
         if sql.startswith('UPDATE expenses SET')
@@ -113,10 +114,9 @@ def test_edit_with_no_receipt_metadata_still_works():
     assert len(updates) == 1
     sql, params = updates[0]
 
-    assert 'receipt_metadata = %s' in sql
-    metadata_param = params[-2]
-    updated_metadata = json.loads(metadata_param)
-    assert updated_metadata['id_light'] == 'kroger_08_20_26_22_50'
+    # ...but metadata is only rewritten when it carries the pre-edit
+    # id_light; an empty column proves no ownership and stays empty.
+    assert 'receipt_metadata = %s' not in sql
 
 
 def test_edit_without_id_light_change_does_not_update_metadata():
@@ -193,251 +193,160 @@ def test_edit_on_schema_without_receipt_metadata_still_works():
     assert 'receipt_metadata' not in sql
 
 
-def test_malformed_receipt_metadata_is_replaced():
-    """Malformed JSON in receipt_metadata should be replaced with valid JSON."""
-    probe = FakeProbe(available=('id_light', 'receipt_metadata'))
+def test_malformed_receipt_metadata_is_left_untouched():
+    """Malformed inline JSON cannot prove ownership, so it is preserved as is."""
+    probe = FakeProbe(available=('id_light', 'receipt_url', 'receipt_metadata'))
     repo, connection = repository(
         [row(
-            id_light='kroger_08_15_26_12_34',
+            id_light=OLD_ID,
+            receipt_url=f'{OLD_ID}.jpg',
             receipt_metadata='{invalid json}',
         )],
         probe=probe,
-    )
-
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
+        relocator=FakeRelocator(),
     )
 
     # Should not crash
-    result = repo.apply_edit(edit_cmd)
+    result = repo.apply_edit(DATE_AMOUNT_EDIT)
 
+    assert result.record.id_light == NEW_ID
     updates = [
         (sql, params) for sql, params in connection.cur.executed
         if sql.startswith('UPDATE expenses SET')
     ]
     assert len(updates) == 1
     sql, params = updates[0]
-
-    # Should have created valid metadata with new id_light
-    metadata_param = params[-2]
-    updated_metadata = json.loads(metadata_param)
-    assert updated_metadata['id_light'] == 'kroger_08_20_26_22_50'
+    assert 'receipt_metadata = %s' not in sql
+    assert '{invalid json}' not in params
 
 
 # ── Tests for separate receipt_metadata table synchronization ──
+#
+# The table's rows are handed to the shared fakes as ``receipt_metadata_rows``.
+# id_light only changes when a filed receipt is actually relocated, so every
+# case that expects a sync gives the row a receipt and a relocator.
+
+OLD_ID = 'kroger_08_15_26_12_34'
+NEW_ID = 'kroger_08_20_26_22_50'
+DATE_AMOUNT_EDIT = ExpenseEdit(
+    expense_id=501,
+    merchant_name='Kroger',
+    transaction_date='2026-08-20',
+    total_amount=22.50,
+    category_id=140,
+)
+RECEIPT_PROBE = FakeProbe(available=('id_light', 'receipt_url'))
+
+
+def _receipt_repository(metadata_rows, **kwargs):
+    return repository(
+        [row(id_light=OLD_ID, receipt_url=f'{OLD_ID}.jpg')],
+        probe=RECEIPT_PROBE,
+        relocator=FakeRelocator(),
+        receipt_metadata_rows=metadata_rows,
+        **kwargs,
+    )
+
+
+def _metadata_statements(connection, prefix):
+    return [
+        (sql, params) for sql, params in connection.cur.executed
+        if sql.startswith(prefix)
+    ]
 
 
 def test_separate_table_sync_updates_id_light_and_raw_response():
     """When id_light changes, separate receipt_metadata table is synchronized."""
-    initial_raw_response = json.dumps({
-        'transaction_date': '2026-08-15',
-        'total': 12.34,
-        'vendor': 'Kroger',
-        'other_field': 'preserved',
-    })
-    probe = FakeProbe(available=('id_light', 'receipt_url'))
-    repo, connection = repository(
-        [row(
-            id_light='kroger_08_15_26_12_34',
-            receipt_url='kroger_08_15_26_12_34.jpg',
-        )],
-        probe=probe,
-        relocator=FakeRelocator(),
-    )
+    repo, connection = _receipt_repository([{
+        'id_light': OLD_ID,
+        'raw_response': json.dumps({
+            'transaction_date': '2026-08-15',
+            'total_amount': 12.34,
+            'vendor': 'Kroger',
+            'other_field': 'preserved',
+        }),
+    }])
 
-    # Set up separate table data
-    connection.separate_receipt_metadata = {
-        501: {
-            'expense_id': 501,
-            'id_light': 'kroger_08_15_26_12_34',
-            'raw_response': initial_raw_response,
-        }
-    }
+    repo.apply_edit(DATE_AMOUNT_EDIT)
 
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
-    )
-
-    result = repo.apply_edit(edit_cmd)
-
-    # Check that separate table was queried
-    metadata_queries = [
-        (sql, params) for sql, params in connection.cur.executed
-        if 'SELECT id_light, raw_response FROM receipt_metadata' in sql
-    ]
-    assert len(metadata_queries) == 1
-
-    # Check that separate table was updated
-    metadata_updates = [
-        (sql, params) for sql, params in connection.cur.executed
-        if 'UPDATE receipt_metadata SET id_light' in sql
-    ]
+    assert len(_metadata_statements(
+        connection, 'SELECT id_light, raw_response FROM receipt_metadata')) == 1
+    metadata_updates = _metadata_statements(
+        connection, 'UPDATE receipt_metadata SET id_light')
     assert len(metadata_updates) == 1
     sql, params = metadata_updates[0]
 
-    # Verify new id_light and updated raw_response
-    assert params[0] == 'kroger_08_20_26_22_50'  # new id_light
+    assert params[0] == NEW_ID
     updated_raw_response = json.loads(params[1])
     assert updated_raw_response['transaction_date'] == '2026-08-20'
-    assert updated_raw_response['total'] == 22.50
+    assert updated_raw_response['total_amount'] == 22.50
     assert updated_raw_response['other_field'] == 'preserved'
 
 
 def test_separate_table_sync_skips_when_no_row_exists():
     """When no separate metadata row exists, sync is skipped silently."""
-    probe = FakeProbe(available=('id_light',))
-    repo, connection = repository(
-        [row(id_light='kroger_08_15_26_12_34')],
-        probe=probe,
-    )
-
-    # No separate table data
-    connection.separate_receipt_metadata = {}
-
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
-    )
+    repo, connection = _receipt_repository([])
 
     # Should not crash
-    result = repo.apply_edit(edit_cmd)
-    assert result.record.id_light == 'kroger_08_20_26_22_50'
+    result = repo.apply_edit(DATE_AMOUNT_EDIT)
+
+    assert result.record.id_light == NEW_ID
+    assert not _metadata_statements(connection, 'UPDATE receipt_metadata')
+    assert connection.commits == 1
 
 
 def test_separate_table_sync_skips_when_id_light_mismatch():
     """When old id_light doesn't match, ownership check prevents update."""
-    probe = FakeProbe(available=('id_light',))
-    repo, connection = repository(
-        [row(id_light='kroger_08_15_26_12_34')],
-        probe=probe,
-    )
+    repo, connection = _receipt_repository([{
+        'id_light': 'different_id_08_15_26_99_99',
+        'raw_response': json.dumps({'total_amount': 99.99}),
+    }])
 
-    # Separate table has different id_light (doesn't match expense)
-    connection.separate_receipt_metadata = {
-        501: {
-            'expense_id': 501,
-            'id_light': 'different_id_08_15_26_99_99',
-            'raw_response': json.dumps({'total': 99.99}),
-        }
-    }
+    repo.apply_edit(DATE_AMOUNT_EDIT)
 
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
-    )
-
-    result = repo.apply_edit(edit_cmd)
-
-    # Should not have updated separate table (ownership mismatch)
-    metadata_updates = [
-        (sql, params) for sql, params in connection.cur.executed
-        if 'UPDATE receipt_metadata SET id_light' in sql
-    ]
-    assert len(metadata_updates) == 0
+    assert not _metadata_statements(connection, 'UPDATE receipt_metadata')
 
 
 def test_separate_table_sync_handles_malformed_raw_response():
     """Malformed raw_response JSON allows id_light update while preserving broken JSON."""
-    probe = FakeProbe(available=('id_light',))
-    repo, connection = repository(
-        [row(id_light='kroger_08_15_26_12_34')],
-        probe=probe,
-    )
-
-    # Malformed raw_response
-    connection.separate_receipt_metadata = {
-        501: {
-            'expense_id': 501,
-            'id_light': 'kroger_08_15_26_12_34',
-            'raw_response': '{invalid json}',
-        }
-    }
-
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
-    )
+    repo, connection = _receipt_repository([{
+        'id_light': OLD_ID,
+        'raw_response': '{invalid json}',
+    }])
 
     # Should not crash
-    result = repo.apply_edit(edit_cmd)
+    repo.apply_edit(DATE_AMOUNT_EDIT)
 
-    # Should have updated only id_light (not raw_response)
-    metadata_updates = [
-        (sql, params) for sql, params in connection.cur.executed
-        if 'UPDATE receipt_metadata SET id_light' in sql and 'raw_response' not in sql
-    ]
-    # With malformed JSON, it updates only id_light
+    metadata_updates = _metadata_statements(connection, 'UPDATE receipt_metadata')
     assert len(metadata_updates) == 1
     sql, params = metadata_updates[0]
-    assert params[0] == 'kroger_08_20_26_22_50'
+    assert 'raw_response' not in sql
+    assert params[0] == NEW_ID
 
 
 def test_separate_table_sync_rollback_on_collision():
     """When separate table update fails (e.g., unique constraint), transaction rolls back."""
-    probe = FakeProbe(available=('id_light',))
-    repo, connection = repository(
-        [row(id_light='kroger_08_15_26_12_34')],
-        probe=probe,
+    repo, connection = _receipt_repository(
+        [{
+            'id_light': OLD_ID,
+            'raw_response': json.dumps({'total_amount': 12.34}),
+        }],
+        fail_on_metadata_update=RuntimeError('duplicate receipt_metadata.id_light'),
     )
 
-    # Set up to trigger unique constraint violation
-    connection.separate_receipt_metadata = {
-        501: {
-            'expense_id': 501,
-            'id_light': 'kroger_08_15_26_12_34',
-            'raw_response': json.dumps({'total': 12.34}),
-        }
-    }
-    connection.fail_on_metadata_update = True  # Trigger SQL error
+    with pytest.raises(RuntimeError, match='duplicate receipt_metadata'):
+        repo.apply_edit(DATE_AMOUNT_EDIT)
 
-    edit_cmd = ExpenseEdit(
-        expense_id=501,
-        merchant_name='Kroger',
-        transaction_date='2026-08-20',
-        total_amount=22.50,
-        category_id=140,
-    )
-
-    # Should raise exception
-    with pytest.raises(Exception):
-        repo.apply_edit(edit_cmd)
-
-    # Verify rollback was called
-    assert connection.rolled_back
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
 def test_category_only_edit_does_not_trigger_separate_table_sync():
     """Category-only edits don't change id_light, so no separate table sync."""
-    probe = FakeProbe(available=('id_light',))
-    repo, connection = repository(
-        [row(id_light='kroger_08_15_26_12_34')],
-        probe=probe,
-    )
-
-    connection.separate_receipt_metadata = {
-        501: {
-            'expense_id': 501,
-            'id_light': 'kroger_08_15_26_12_34',
-            'raw_response': json.dumps({'total': 12.34}),
-        }
-    }
+    repo, connection = _receipt_repository([{
+        'id_light': OLD_ID,
+        'raw_response': json.dumps({'total_amount': 12.34}),
+    }])
 
     # Edit only category, not date/amount
     edit_cmd = ExpenseEdit(
@@ -448,11 +357,12 @@ def test_category_only_edit_does_not_trigger_separate_table_sync():
         category_id=999,  # Different category
     )
 
-    result = repo.apply_edit(edit_cmd)
+    repo.apply_edit(edit_cmd)
 
-    # Should not have queried or updated separate table
-    metadata_queries = [
-        (sql, params) for sql, params in connection.cur.executed
-        if 'receipt_metadata' in sql.lower()
+    # The table itself is neither read nor written (the expenses SELECT may
+    # still name the inline receipt_metadata column).
+    touched = [
+        sql for sql, _ in connection.cur.executed
+        if 'FROM receipt_metadata' in sql or sql.startswith('UPDATE receipt_metadata')
     ]
-    assert len(metadata_queries) == 0
+    assert touched == []

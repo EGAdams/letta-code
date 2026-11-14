@@ -96,6 +96,7 @@ export {
 } from "./document-pipeline-controller.js";
 export { DomConsoleView } from "./dom-console-view.js";
 export { DomDocumentPipelineView } from "./dom-document-pipeline-view.js";
+export { DomNavLiveSync } from "./dom-nav-live-sync.js";
 export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
 export { DomVendorReviewView } from "./dom-vendor-review-view.js";

@@ -51,12 +51,27 @@ export class ReceptionistFailureAlert {
     }
     const live = new Map();
     for (const alert of payload?.alerts || []) {
-      live.set(`${alert.agent}:${alert.id}`, {
+      const key = alert.task_id
+        ? `task:${alert.task_id}`
+        : `${alert.agent}:${alert.id}`;
+      const item = {
         agent: alert.agent,
         ids: [alert.id],
         title: alert.title || `${alert.name || alert.agent}: a task failed`,
         text: alert.spoken || alert.error || "A task failed.",
-      });
+        severity: alert.severity || "notice",
+      };
+      const existing = live.get(key);
+      if (existing) {
+        existing.sources.push(item);
+        if (severityRank(item.severity) > severityRank(existing.severity)) {
+          existing.title = item.title;
+          existing.text = item.text;
+          existing.severity = item.severity;
+        }
+      } else {
+        live.set(key, { ...item, sources: [item] });
+      }
     }
     for (const err of payload?.errors || []) {
       live.set(`${err.agent}:unreadable`, {
@@ -65,6 +80,7 @@ export class ReceptionistFailureAlert {
         title: `${err.name || err.agent} can't read her failure alerts`,
         text: err.error || "unknown error",
         ackable: false,
+        sources: [],
       });
     }
     for (const [key, el] of this._cards) {
@@ -82,10 +98,11 @@ export class ReceptionistFailureAlert {
 
   async acknowledge(key, alert) {
     try {
-      await this._http.postJSON("/api/receptionist-alerts/ack", {
-        agent: alert.agent,
-        ids: alert.ids,
-      });
+      for (const source of alert.sources || [alert])
+        await this._http.postJSON("/api/receptionist-alerts/ack", {
+          agent: source.agent,
+          ids: source.ids,
+        });
     } catch {
       // Best-effort: hide it locally; if the ack never landed, the next poll
       // brings it back, which is the point.
@@ -159,6 +176,10 @@ export class ReceptionistFailureAlert {
     this._box().appendChild(card);
     return card;
   }
+}
+
+function severityRank(severity) {
+  return { notice: 1, escalated: 2, urgent: 3 }[severity] || 0;
 }
 
 /** A browser Notification when the user has allowed them; asks once if not. */

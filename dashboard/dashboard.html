@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260829agentblocksmarkers" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=adw6f7fca52" />
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260910" />
   <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
@@ -13,6 +13,8 @@
   <link rel="stylesheet" href="/css/printer-panel.css?v=20261102printer" />
   <link rel="stylesheet" href="/css/worker-activity.css?v=20261105fiverows" />
   <link rel="stylesheet" href="/css/service-management.css?v=20261107" />
+  <link rel="stylesheet" href="/css/terminal.css?v=adwd410fc4b" />
+  <link rel="stylesheet" href="/js/adw-debugger/adw-debugger.css?v=20261113d" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -30,6 +32,16 @@
 
     <!-- Main nav -->
     <nav id="nav-main">
+      <!--
+        Terminal tab. Nav structure + placeholder view only: no command
+        execution is wired up yet. Per the ADW architectural rule, any later
+        command dispatch wired into this tab must run as a traced ADW
+        (preserving parent/child ADW execution IDs) through the existing ADW
+        lifecycle, never as untraced background scripting — a tab click here
+        is not itself an ADW job. This is separate from, and does not modify,
+        the Debugger tab's ADW Parent/Child/Agent sub-nav below.
+      -->
+      <button type="button" class="tab" data-nav="main" data-target="terminal">Terminal</button>
       <button type="button" class="tab" data-nav="main" data-target="notes">NOTES</button>
       <button type="button" class="tab" data-nav="main" data-target="all-monitors">All Monitors</button>
       <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
@@ -37,6 +49,7 @@
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-block">Agent Blocks</button>
+      <button type="button" class="tab" data-nav="main" data-target="debugger">Debugger</button>
     </nav>
 
     <!-- PC Monitor sub-nav -->
@@ -175,6 +188,22 @@
     <!-- SSH Connections sub-nav (connection tabs injected dynamically) -->
     <nav id="nav-ssh-connections" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
+    </nav>
+
+    <!--
+      Debugger sub-nav. Nav structure only: these three tabs are static view
+      switches with no backend call behind them yet. Per the ADW architectural
+      rule, any later monitoring/control wired into these tabs must run as a
+      traced ADW (preserving parent/child ADW execution IDs) through the
+      existing ADW lifecycle, never as untraced background scripting — a tab
+      click here is not itself an ADW job. This is separate from, and does not
+      modify, the existing ADW Object Debugger.
+    -->
+    <nav id="nav-debugger" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-debugger">Back</button>
+      <button type="button" class="tab active" data-nav="debugger" data-target="debugger-adw-parent">ADW Parent</button>
+      <button type="button" class="tab" data-nav="debugger" data-target="debugger-adw-child">ADW Child</button>
+      <button type="button" class="tab" data-nav="debugger" data-target="debugger-adw-agent">ADW Agent</button>
     </nav>
     <div id="worker-legend" class="worker-legend" aria-live="polite">
       <h2>Worker legend</h2><p class="worker-legend-empty">Checking worker telemetry&hellip;</p>
@@ -629,6 +658,38 @@
       <section id="rol-finance-mazda-objects" class="view">
       <iframe class="plan-frame" src="/notes_plans_handoffs/mazda_objects.html"></iframe>
     </section>
+    <!-- Terminal view: a read-only live feed of every event this dashboard
+         already has an authoritative source for (/api/worker-activity), not
+         a command shell. No command execution is wired up here — see the
+         comment on the nav button above for the ADW tracing rule that would
+         govern that if it is ever added. -->
+    <section id="terminal" class="view">
+      <h2>Terminal</h2>
+      <p class="srv-note">Live event stream from every source /api/worker-activity already covers: worker
+        task events, the adw_supervisor's escalations, the Star Trek Bridge gateway's supervised requests
+        and their child ADW tasks, the bridge worker's own supervisor heartbeat, and installed worker
+        lanes. A line tagged <code>[gap:*]</code> means that source is unavailable right now, not that
+        nothing happened. Clear only empties this view; it does not touch any backend log.</p>
+      <div class="terminal-toolbar">
+        <button type="button" class="am-btn" id="terminal-clear">Clear</button>
+        <span id="terminal-status" class="terminal-status" role="status" aria-live="polite">Connecting&hellip;</span>
+      </div>
+      <div id="terminal-stream" role="log" aria-live="polite" aria-label="Agent and ADW event stream"></div>
+    </section>
+    <!-- Debugger views: ADW Parent / ADW Child / ADW Agent are placeholders
+         (nav structure only, no monitoring controls yet). -->
+    <section id="debugger-adw-parent" class="view">
+      <h2>ADW Parent</h2>
+      <p>Placeholder — no monitoring controls yet.</p>
+    </section>
+    <section id="debugger-adw-child" class="view">
+      <h2>ADW Child</h2>
+      <p>Placeholder — no monitoring controls yet.</p>
+    </section>
+    <section id="debugger-adw-agent" class="view">
+      <h2>ADW Agent</h2>
+      <p>Placeholder — no monitoring controls yet.</p>
+    </section>
     <section id="all-monitors" class="view">
       <all-monitors-page></all-monitors-page>
     </section>
@@ -700,7 +761,10 @@
 
   <script src="/vendor/canvas-gauges/gauge.min.js?v=2.1.7"></script>
   <script type="module" src="/js/boot/all-monitors.js?v=20261104monitors"></script>
-  <script type="module" src="/js/dashboard-boot.js?v=20261105-notes-live-highlight"></script>
+  <script type="module" src="/js/boot/terminal-page.js?v=adwd410fc4b"></script>
+  <!-- Live ADW Sequence Debugger: mounts above #terminal-stream. See adw_debugger_ui/DESIGN.md. -->
+  <script type="module" src="/js/adw-debugger/adw-debugger.js?v=20261113d"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=adwd410fc4b"></script>
   <script type="module" src="/js/boot/auto-reload.js?v=20261107-auto-reload"></script>
 </body>
 </html>
