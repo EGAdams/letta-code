@@ -52,6 +52,8 @@ from intake.mazda_mode import (
 # and importing the functions individually would invite a test to monkeypatch
 # `server.<name>` and isolate nothing (the moved code closes over its own
 # module globals).
+from intake import finance_workflow_dispatch
+from intake import intake_engine
 from intake import mazda_dispatch
 from intake.mazda_dispatch import HUMAN_ONLY_MODE_STAGE_MESSAGE
 from category_taxonomy_seed import LEGACY_TAXONOMY
@@ -1533,6 +1535,32 @@ def _mazda_dispatch_deps():
         merge_status=merge_recent_intake_status,
         observe_callback=_observe_intake_callback,
         letta_get=letta_get,
+        finance_workflow=_finance_workflow_dispatcher().dispatch,
+    )
+
+
+# Which engine takes the next Automatic document: the Mazda agent's eight-step
+# turn (default), or the finance application's own workflow. One small file
+# decides, so a cutover or a rollback needs no restart:
+#   echo '{"engine": "finance_workflow"}' > ~/.mazda/intake_engine.json
+#   echo '{"engine": "mazda_agent"}'      > ~/.mazda/intake_engine.json
+INTAKE_ENGINE_FILE = os.path.expanduser('~/.mazda/intake_engine.json')
+FINANCE_INTAKE_ADW = os.environ.get(
+    'FINANCE_INTAKE_ADW',
+    os.path.expanduser('~/agent_blocks/adws/adw_interface_finance_intake.py'))
+FINANCE_INTAKE_PYTHON = os.environ.get(
+    'FINANCE_INTAKE_PYTHON', os.path.expanduser('~/rol_finances/.venv/bin/python3'))
+_INTAKE_ENGINE_SERVICE = intake_engine.IntakeEngineService(INTAKE_ENGINE_FILE)
+
+
+def _finance_workflow_dispatcher():
+    """Rebuilt per call, like the bundle it joins, so tests can replace the parts."""
+    return finance_workflow_dispatch.FinanceWorkflowDispatcher(
+        engine=_INTAKE_ENGINE_SERVICE.current,
+        runner=finance_workflow_dispatch.AdwFinanceWorkflowRunner(
+            FINANCE_INTAKE_PYTHON, FINANCE_INTAKE_ADW,
+            cwd=os.path.dirname(os.path.dirname(FINANCE_INTAKE_ADW))),
+        merge_status=merge_recent_intake_status,
     )
 
 

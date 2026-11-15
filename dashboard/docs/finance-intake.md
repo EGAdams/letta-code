@@ -192,6 +192,33 @@ fire-and-forget (`_notify_mazda_of_scan`, message built by pure `build_mazda_sca
    self-improvement judge score the trace (served by `mazda-tools-mcp.service` — restart after a
    rubric/tool change).
 
+### Intake engine: the Mazda agent's turn, or the finance workflow (2026-11-15)
+
+"Automatic" can now run on either of two engines. `intake/intake_engine.py` answers which;
+`intake/finance_workflow_dispatch.py` is the hand-off; the fork is still the one in
+`mazda_dispatch.dispatch_or_block` (Semi-Automatic is checked first and still wins).
+
+| Engine | What runs | Default |
+|---|---|---|
+| `mazda_agent` | the eight-step message above; the agent runs the store commands | **yes** |
+| `finance_workflow` | `~/agent_blocks/adws/adw_interface_finance_intake.py` → `~/rol_finances/finance_app/intake`: code runs classify → extract → exact lookups → validate → store; a model is asked only what code cannot settle | no |
+
+Switch without a restart (the file wins over `FINANCE_INTAKE_ENGINE`):
+
+```bash
+echo '{"engine": "finance_workflow"}' > ~/.mazda/intake_engine.json   # cut over
+echo '{"engine": "mazda_agent"}'      > ~/.mazda/intake_engine.json   # roll back
+```
+
+Rules worth knowing: a statement the facade or operator already named stays on `mazda_agent`
+(its report page still has no builder code can call); a workflow run that answers `unsupported`
+falls back to `mazda_agent`; a run that crashed is **never** retried on the other engine; no
+Trainer watch is armed for a workflow run. Runs that store something send the same
+`/api/expense-stored` callback; runs that do not are given their terminal status
+(`status_source: finance_workflow`) by the dispatcher. Each run is in the Terminal debugger
+under `adw_interface_finance_intake`. Process-by-process status:
+`~/rol_finances/architecture/COVERAGE_MATRIX.md`.
+
 ## Failed scan → Trainer (Mazda's watcher)
 
 Normal intake does not start a Trainer model session. `intake/trainer_escalation.py` arms a cheap

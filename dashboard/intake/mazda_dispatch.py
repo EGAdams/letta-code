@@ -145,6 +145,10 @@ class Collaborators:
     merge_status: Callable[[dict], bool]
     observe_callback: Callable[[dict], Any]
     letta_get: Callable[..., Any]
+    #: ``intake.finance_workflow_dispatch.FinanceWorkflowDispatcher.dispatch``,
+    #: or None on a box that has no finance workflow. It answers True when it
+    #: took the document, and is handed the earlier path to fall back on.
+    finance_workflow: Callable[..., bool] | None = None
 
 
 def block_for_human_only(deps: Collaborators, document_path, conversation_id,
@@ -196,9 +200,19 @@ def dispatch_or_block(deps: Collaborators, document_path, label, facade,
     if deps.current_mode() == SEMI_AUTOMATIC:
         block_for_human_only(deps, document_path, conversation_id, dispatched_at)
         return False
-    deps.watch_intake(document_path, label, facade, conversation_id, dispatched_at)
-    threading.Thread(
-        target=mazda_thread_target, args=mazda_thread_args, daemon=True).start()
+    def mazda_agent_path() -> None:
+        deps.watch_intake(document_path, label, facade, conversation_id, dispatched_at)
+        threading.Thread(
+            target=mazda_thread_target, args=mazda_thread_args, daemon=True).start()
+
+    # The finance application's own workflow goes first when it is switched on
+    # and the document is one it takes. No Trainer watch is armed for it: the
+    # Trainer coaches the agent's turn, and here there is no turn to coach.
+    if deps.finance_workflow is not None and deps.finance_workflow(
+            document_path, label, facade, conversation_id, dispatched_at,
+            mazda_agent_path):
+        return True
+    mazda_agent_path()
     return True
 
 
