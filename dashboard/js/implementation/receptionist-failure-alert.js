@@ -65,10 +65,12 @@ export class ReceptionistFailureAlert {
         title: alert.title || `${alert.name || alert.agent}: a task failed`,
         text: alert.spoken || alert.error || "A task failed.",
         severity: alert.severity || "notice",
+        outcome: alert.outcome || "",
       };
       const existing = live.get(key);
       if (existing) {
         existing.sources.push(item);
+        if (item.outcome !== "succeeded") existing.outcome = item.outcome;
         if (severityRank(item.severity) > severityRank(existing.severity)) {
           existing.title = item.title;
           existing.text = item.text;
@@ -208,7 +210,7 @@ export class ReceptionistFailureAlert {
         alignItems: "center",
         justifyContent: "space-between",
         gap: "8px",
-        background: "#5c0010",
+        background: "#2b2b2b",
         color: "#fff",
         padding: "6px 8px 6px 12px",
         borderRadius: "6px",
@@ -259,10 +261,14 @@ export class ReceptionistFailureAlert {
     card.className = "receptionist-failure-alert";
     card.dataset.alertKey = key;
     card._alert = alert;
+    // Only a failure is red. A Bridge task that succeeded (a relay reply, a
+    // scan filed) is news, not an alarm, so it gets a calm card of its own.
+    const tone = alert.outcome === "succeeded" ? TONES.done : TONES.failed;
+    card.dataset.tone = tone.name;
     Object.assign(card.style, {
       position: "relative",
       flex: "0 0 auto",
-      background: "#b00020",
+      background: tone.background,
       color: "#fff",
       padding: "10px 48px 10px 12px",
       borderRadius: "6px",
@@ -285,7 +291,9 @@ export class ReceptionistFailureAlert {
       ack.type = "button";
       ack.className = "receptionist-failure-alert-ack";
       ack.textContent = "Got it";
-      Object.assign(ack.style, buttonStyle(), { marginTop: "8px" });
+      Object.assign(ack.style, buttonStyle(tone.background), {
+        marginTop: "8px",
+      });
       ack.addEventListener("click", () => this.acknowledge(key, alert));
       card.appendChild(ack);
     }
@@ -294,7 +302,7 @@ export class ReceptionistFailureAlert {
       more.type = "button";
       more.className = "receptionist-failure-alert-more";
       more.textContent = "Show more";
-      Object.assign(more.style, buttonStyle(), {
+      Object.assign(more.style, buttonStyle(tone.background), {
         marginTop: "8px",
         marginLeft: "8px",
         background: "transparent",
@@ -354,14 +362,19 @@ const UNCLAMPED = {
   overflow: "visible",
 };
 
-function buttonStyle() {
+const TONES = {
+  failed: { name: "failed", background: "#b00020" },
+  done: { name: "done", background: "#1e5a3c" },
+};
+
+function buttonStyle(color = "#b00020") {
   return {
     minHeight: "36px",
     padding: "6px 14px",
     border: "none",
     borderRadius: "4px",
     background: "#fff",
-    color: "#b00020",
+    color,
     fontWeight: "600",
     fontSize: "14px",
     cursor: "pointer",

@@ -231,4 +231,46 @@ describe("ReceptionistFailureAlert", () => {
     expect(reload.spoken).toHaveLength(0);
     expect(reload.notified).toHaveLength(0);
   });
+
+  test("only a failure is red: a Bridge task that succeeded gets the calm card", async () => {
+    const done = {
+      id: "bridge-t_ok",
+      task_id: "t_ok",
+      agent: "sydney",
+      kind: "bridge_finished",
+      outcome: "succeeded",
+      title: "Star Trek Bridge: ChatGPT relay finished",
+      spoken: "bati says: I'm ready, EG.",
+    };
+    const failed = {
+      ...done,
+      id: "bridge-t_bad",
+      task_id: "t_bad",
+      outcome: "failed",
+      title: "Star Trek Bridge: browser failed",
+    };
+    const t = setup({ ok: true, alerts: [done, failed, PLAN], errors: [] });
+    await t.alert.poll();
+    expect(t.cards().map((c) => c.dataset.tone)).toEqual([
+      "done",
+      "failed",
+      "failed",
+    ]);
+    expect(t.cards()[0].style.background).not.toBe("#b00020");
+    expect(t.cards()[1].style.background).toBe("#b00020");
+  });
+
+  test("a task with a success and a failure source stays red", async () => {
+    const t = setup({
+      ok: true,
+      alerts: [
+        { ...PLAN, id: "a", task_id: "t1", outcome: "succeeded" },
+        { ...PLAN, id: "b", agent: "bridge", task_id: "t1" },
+      ],
+      errors: [],
+    });
+    await t.alert.poll();
+    expect(t.cards()).toHaveLength(1);
+    expect(t.cards()[0].dataset.tone).toBe("failed");
+  });
 });
