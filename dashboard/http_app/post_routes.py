@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import adw_prompts
 import codex_sync_status
 import model_stats_mute
+import remediation_dispatch
 import ssh_connection_mute
 import statement_review
 import mazda_receptionist_service
@@ -112,6 +113,7 @@ class PostRoutesMixin:
             '/api/receptionist-work/claim': receptionist_work_api.claim,
             '/api/receptionist-training/expense-search': receptionist_work_api.training_search,
             '/api/receptionist-training/expense-edit': receptionist_work_api.training_edit,
+            '/api/alert-remediation/dispatch': remediation_dispatch.dispatch,
         }
         if path in work_routes:
             try:

@@ -80,6 +80,8 @@ bun test js/tests
 | `spoken-output-policy.js`          | Strategy                 | per-renderer "is this speakable?" filtering |
 | `model-stats-render.js`            | pure renderer            | `renderModelStats()` / `renderRateOfChange()` |
 | `pc-metrics-render.js`             | pure renderer            | `renderPcMetrics()` |
+| `remediation-prompt.js`            | pure builder             | `buildRemediationPrompt()` / `redactSecrets()` for the failure card's "Execute agent" button |
+| `model-choice.js`                  | Strategy (pure)          | `modelOptionState()` gating the same card's model selector on `/api/remediation-models` |
 
 Concrete classes that have no separate `abstract/` interface live directly in
 `implementation/` (they are pure DOM/fetch glue over the interfaces above):

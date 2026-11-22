@@ -274,3 +274,368 @@ describe("ReceptionistFailureAlert", () => {
     expect(t.cards()[0].dataset.tone).toBe("failed");
   });
 });
+
+const FAILED = {
+  id: "f1",
+  agent: "sydney",
+  name: "Sydney",
+  task_id: "t_exec",
+  spoken: "Something broke badly.",
+};
+
+/** URL-aware double: /api/remediation-models and /api/alert-remediation/dispatch
+ * need distinct responses from the alerts poll, unlike the shared `setup()`
+ * above (which only ever serves one alerts payload to every getJSON call). */
+function setupExecute({
+  alerts = [FAILED],
+  modelsPayload = {
+    current: "claude-sonnet",
+    providers: [
+      {
+        id: "claude-sonnet",
+        label: "Claude Sonnet",
+        available: false,
+        configured: true,
+        detail: "",
+      },
+      {
+        id: "claude-opus",
+        label: "Claude Opus",
+        available: false,
+        configured: false,
+        detail: "not configured in this deployment",
+      },
+    ],
+  },
+  dispatchResponse = {
+    ok: true,
+    already_submitted: false,
+    status: "queued",
+    task_id: "remediate-abc123",
+  },
+  statusResponses = [],
+} = {}) {
+  const doc = new FakeDocument();
+  const posts = [];
+  const statusGets = [];
+  const timers = [];
+  let clock = 0;
+  const http = {
+    getJSON: async (url) => {
+      if (url === "/api/remediation-models") return modelsPayload;
+      if (url.startsWith("/api/alert-remediation/status")) {
+        statusGets.push(url);
+        const next = statusResponses.shift();
+        if (next instanceof Error) throw next;
+        return next;
+      }
+      return { ok: true, alerts, errors: [] };
+    },
+    postJSON: async (url, body) => {
+      posts.push([url, body]);
+      if (url === "/api/alert-remediation/dispatch") {
+        if (dispatchResponse instanceof Error) throw dispatchResponse;
+        return dispatchResponse;
+      }
+      return { ok: true };
+    },
+  };
+  const alert = new ReceptionistFailureAlert({
+    http,
+    doc,
+    setInterval: () => 1,
+    setTimeout: (fn, ms) => timers.push({ fn, ms }),
+    now: () => clock,
+  });
+  const card = async () => {
+    await alert.poll();
+    return doc.body.children[0].children[0];
+  };
+  /** Runs the next scheduled status poll, advancing the fake clock by its delay. */
+  const tick = async () => {
+    const next = timers.shift();
+    if (!next) return false;
+    clock += next.ms;
+    await next.fn();
+    await settle();
+    return true;
+  };
+  const advance = (ms) => {
+    clock += ms;
+  };
+  return { alert, doc, posts, card, statusGets, timers, tick, advance };
+}
+
+async function settle(n = 3) {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+}
+
+describe("ReceptionistFailureAlert — Execute agent", () => {
+  test("a short failing card shows exactly Got it and Execute agent, plus the close icon", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    const labels = card.querySelectorAll("button").map((b) => b.textContent);
+    expect(labels).toEqual(["Got it", "Execute agent", "×"]);
+  });
+
+  test("a long failing card adds Show more without losing Got it or Execute agent", async () => {
+    const t = setupExecute({
+      alerts: [{ ...FAILED, spoken: "x ".repeat(300) }],
+    });
+    const card = await t.card();
+    const labels = card.querySelectorAll("button").map((b) => b.textContent);
+    expect(labels).toEqual(["Got it", "Execute agent", "Show more", "×"]);
+  });
+
+  test("defaults to Claude Sonnet and disables Opus with the registry's own reason", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    const select = card.querySelector(
+      ".receptionist-failure-alert-model-select",
+    );
+    expect(select.value).toBe("claude-sonnet");
+    await settle();
+    const opus = card
+      .querySelectorAll("option")
+      .find((o) => o.value === "claude-opus");
+    expect(opus.disabled).toBe(true);
+    expect(opus.textContent).toContain("not configured in this deployment");
+  });
+
+  test("Opus is only offered once the registry reports it configured", async () => {
+    const t = setupExecute({
+      modelsPayload: {
+        current: "claude-sonnet",
+        providers: [
+          {
+            id: "claude-sonnet",
+            label: "Claude Sonnet",
+            available: false,
+            configured: true,
+            detail: "",
+          },
+          {
+            id: "claude-opus",
+            label: "Claude Opus",
+            available: false,
+            configured: true,
+            detail: "",
+          },
+        ],
+      },
+    });
+    const card = await t.card();
+    await settle();
+    const opus = card
+      .querySelectorAll("option")
+      .find((o) => o.value === "claude-opus");
+    expect(opus.disabled).toBe(false);
+    expect(opus.textContent).toBe("Claude Opus");
+  });
+
+  test("the visible prompt is the sanitized one, not raw alert text", async () => {
+    const t = setupExecute({
+      alerts: [
+        {
+          ...FAILED,
+          spoken: "Authorization: Bearer sk-liveSECRETVALUE123 failed",
+        },
+      ],
+    });
+    const card = await t.card();
+    const promptBox = card.querySelector(".receptionist-failure-alert-prompt");
+    expect(promptBox.value).not.toContain("sk-liveSECRETVALUE123");
+    expect(promptBox.value).toContain("[REDACTED]");
+  });
+
+  test("clicking Execute agent disables it, posts once and reports the task id back in the UI", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    const execute = card.querySelector(".receptionist-failure-alert-execute");
+    const status = card.querySelector(
+      ".receptionist-failure-alert-dispatch-status",
+    );
+
+    execute.click();
+    expect(execute.disabled).toBe(true); // synchronous, before the POST even resolves
+    await settle();
+
+    expect(t.posts).toHaveLength(1);
+    const [url, body] = t.posts[0];
+    expect(url).toBe("/api/alert-remediation/dispatch");
+    expect(body.alert_key).toBe("task:t_exec");
+    expect(body.model_id).toBe("claude-sonnet");
+    expect(body.prompt).toContain("## Exact error");
+    expect(status.textContent).toContain("Submitted");
+    expect(status.textContent).toContain("remediate-abc123");
+    expect(execute.disabled).toBe(true); // stays disabled: one task per alert
+  });
+
+  test("the alert is not auto-dismissed by a successful dispatch", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    card.querySelector(".receptionist-failure-alert-execute").click();
+    await settle();
+    expect(
+      t.posts.filter(([url]) => url === "/api/receptionist-alerts/ack"),
+    ).toHaveLength(0);
+    expect(card.parent).not.toBeNull();
+  });
+
+  test("a second click while the first is still in flight does not submit twice", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    const execute = card.querySelector(".receptionist-failure-alert-execute");
+    execute.click();
+    execute.click();
+    await settle();
+    expect(t.posts).toHaveLength(1);
+  });
+
+  test("a refused dispatch re-enables the button and shows the server's reason", async () => {
+    const t = setupExecute({
+      dispatchResponse: {
+        ok: false,
+        error: "model_unavailable",
+        detail: '"claude-opus" is not configured',
+      },
+    });
+    const card = await t.card();
+    const execute = card.querySelector(".receptionist-failure-alert-execute");
+    execute.click();
+    await settle();
+    expect(execute.disabled).toBe(false); // a refusal is retryable
+    expect(
+      card.querySelector(".receptionist-failure-alert-dispatch-status")
+        .textContent,
+    ).toContain("Not executed");
+  });
+
+  test("a network failure leaves the copy-paste prompt as the fallback and re-enables the button", async () => {
+    const t = setupExecute({ dispatchResponse: new Error("offline") });
+    const card = await t.card();
+    const execute = card.querySelector(".receptionist-failure-alert-execute");
+    execute.click();
+    await settle();
+    expect(execute.disabled).toBe(false);
+    expect(
+      card.querySelector(".receptionist-failure-alert-dispatch-status")
+        .textContent,
+    ).toContain("Copy the prompt below");
+  });
+
+  test("a card that already succeeded (done tone) never gets an Execute agent button", async () => {
+    const done = { ...FAILED, outcome: "succeeded" };
+    const t = setupExecute({ alerts: [done] });
+    const card = await t.card();
+    expect(
+      card.querySelector(".receptionist-failure-alert-execute"),
+    ).toBeNull();
+  });
+
+  test("the dispatched prompt is exactly the one shown in the box", async () => {
+    const t = setupExecute();
+    const card = await t.card();
+    const shown = card.querySelector(
+      ".receptionist-failure-alert-prompt",
+    ).value;
+    card.querySelector(".receptionist-failure-alert-execute").click();
+    await settle();
+    expect(t.posts[0][1].prompt).toBe(shown);
+  });
+
+  test("after submitting, the card follows the task to success and stops polling", async () => {
+    const t = setupExecute({
+      dispatchResponse: {
+        ok: true,
+        already_submitted: false,
+        status: "queued",
+        task_id: "t_abc",
+      },
+      statusResponses: [
+        { ok: true, task_id: "t_abc", state: "running", terminal: false },
+        {
+          ok: true,
+          task_id: "t_abc",
+          state: "succeeded",
+          terminal: true,
+          succeeded: true,
+          summary: "Fixed it.",
+        },
+      ],
+    });
+    const card = await t.card();
+    const status = card.querySelector(
+      ".receptionist-failure-alert-dispatch-status",
+    );
+    card.querySelector(".receptionist-failure-alert-execute").click();
+    await settle();
+    expect(status.textContent).toContain("t_abc");
+    await t.tick();
+    expect(t.statusGets[0]).toBe(
+      "/api/alert-remediation/status?alert_key=task%3At_exec",
+    );
+    expect(status.textContent).toContain("running");
+    await t.tick();
+    expect(status.textContent).toContain("Completed");
+    expect(status.textContent).toContain("Fixed it.");
+    expect(t.timers).toHaveLength(0); // terminal: nothing more scheduled
+  });
+
+  test("a failed task is reported as failed with the Bridge's reason", async () => {
+    const t = setupExecute({
+      dispatchResponse: {
+        ok: true,
+        already_submitted: false,
+        status: "queued",
+        task_id: "t_abc",
+      },
+      statusResponses: [
+        {
+          ok: true,
+          task_id: "t_abc",
+          state: "failed",
+          terminal: true,
+          succeeded: false,
+          detail: "worker timed out",
+        },
+      ],
+    });
+    const card = await t.card();
+    const status = card.querySelector(
+      ".receptionist-failure-alert-dispatch-status",
+    );
+    card.querySelector(".receptionist-failure-alert-execute").click();
+    await settle();
+    await t.tick();
+    expect(status.textContent).toContain("ended failed");
+    expect(status.textContent).toContain("worker timed out");
+    expect(status.textContent).not.toContain("Completed");
+  });
+
+  test("an unreachable status endpoint is retried, and watching stops at the time limit", async () => {
+    const t = setupExecute({
+      dispatchResponse: {
+        ok: true,
+        already_submitted: false,
+        status: "queued",
+        task_id: "t_abc",
+      },
+      statusResponses: [new Error("offline")],
+    });
+    const card = await t.card();
+    const status = card.querySelector(
+      ".receptionist-failure-alert-dispatch-status",
+    );
+    card.querySelector(".receptionist-failure-alert-execute").click();
+    await settle();
+    await t.tick();
+    expect(status.textContent).toContain("status unavailable");
+    expect(t.timers).toHaveLength(1); // retried
+    t.advance(46 * 60 * 1000);
+    await t.tick();
+    // the poll that was already due runs once more, then the limit stops the watch
+    expect(t.timers).toHaveLength(0);
+    expect(status.textContent).toContain("stopped watching");
+  });
+});

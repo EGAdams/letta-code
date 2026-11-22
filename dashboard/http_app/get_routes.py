@@ -21,6 +21,7 @@ import model_stats_mute
 import ssh_connection_mute
 import statement_review
 import receptionist_alerts
+import remediation_dispatch
 import toyota_service
 from voice import note_repository
 import notes_activity
@@ -44,6 +45,7 @@ from model_stats.sources import MODEL_STAT_SOURCES
 from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win10_node
 from monitoring import wsl_interop_entry
 from monitoring import agent_bridge_poll
+from monitoring import model_registry
 from monitoring import printer_panel
 from monitoring import worker_activity
 from monitoring import service_management
@@ -325,6 +327,18 @@ class GetRoutesMixin:
 
         if path == '/api/worker-activity':
             return self.json_response(worker_activity.payload())
+
+        if path == '/api/remediation-models':
+            # Same registry Worker Activity already renders as disabled buttons for
+            # anything unconfigured (renderWorkerProviderSelection); the "Execute
+            # agent" model selector reuses it rather than hand-coding which models
+            # exist here too.
+            return self.json_response(model_registry.provider_selection_payload(current='claude-sonnet'))
+
+        if path == '/api/alert-remediation/status':
+            # Progress of the one Bridge task "Execute agent" dispatched for this
+            # alert; the Bridge client token stays server-side in remediation_runner.
+            return self.json_response(remediation_dispatch.status(query.get('alert_key', [''])[0]))
 
         if path == '/api/pc-metrics':
             return self.json_response(pc_metrics.pc_metrics(query.get('pc', [''])[0]))

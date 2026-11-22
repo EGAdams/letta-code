@@ -10,6 +10,7 @@ import socket
 
 import pytest
 
+import remediation_dispatch
 import server
 from http_app import post_routes
 from letta_code import streaming as conversation_streaming
@@ -405,6 +406,63 @@ class TestPostBodyHandling:
         stub('record_stored_expense', lambda d: seen.append(d) or {'ok': True})
         live.post('/api/expense-stored', {'vendor': 'Café ⚠ Ñ'})
         assert seen[0]['vendor'] == 'Café ⚠ Ñ'
+
+
+# ==========================================================================
+# /api/alert-remediation/dispatch — "Execute agent". remediation_dispatch.py
+# owns model/runner policy and has its own focused unit tests
+# (test_remediation_dispatch.py, test_remediation_runner.py); this class only
+# proves the HTTP route itself passes a real dispatch through and turns a
+# rejected request or an unexpected failure into the right status code
+# instead of a 500.
+# ==========================================================================
+class TestAlertRemediationDispatchRoute:
+    def test_malformed_json_is_a_400_not_a_500(self, live, svc):
+        resp = live.post('/api/alert-remediation/dispatch', body='{not json')
+        assert resp.status == 400
+        assert 'error' in resp.json
+
+    def test_a_rejected_request_is_a_400(self, live, svc):
+        # alert_key fails RemediationDispatchRequest's min_length=1 -- the real
+        # remediation_dispatch.dispatch runs here, unmocked.
+        resp = live.post('/api/alert-remediation/dispatch',
+                         {'alert_key': '', 'model_id': 'claude-sonnet', 'prompt': 'p'})
+        assert resp.status == 400
+        assert 'error' in resp.json
+
+    def test_a_successful_dispatch_returns_the_tracked_task_id(self, live, svc, monkeypatch):
+        monkeypatch.setattr(remediation_dispatch, 'dispatch', lambda data: {
+            'ok': True, 'already_submitted': False, 'status': 'queued',
+            'task_id': 'remediate-abc123', 'model_id': data['model_id'],
+        })
+        resp = live.post('/api/alert-remediation/dispatch',
+                         {'alert_key': 'a1', 'model_id': 'claude-sonnet', 'prompt': 'p'})
+        assert resp.status == 200
+        assert resp.json == {'ok': True, 'already_submitted': False, 'status': 'queued',
+                              'task_id': 'remediate-abc123', 'model_id': 'claude-sonnet'}
+
+    def test_an_unexpected_dispatch_failure_is_a_503_not_a_500(self, live, svc, monkeypatch):
+        def boom(data):
+            raise RuntimeError('runner crashed')
+        monkeypatch.setattr(remediation_dispatch, 'dispatch', boom)
+        resp = live.post('/api/alert-remediation/dispatch',
+                         {'alert_key': 'a1', 'model_id': 'claude-sonnet', 'prompt': 'p'})
+        assert resp.status == 503
+        assert 'runner crashed' in resp.json['error']
+
+    def test_status_route_passes_the_alert_key_through(self, live, svc, monkeypatch):
+        seen = []
+        monkeypatch.setattr(remediation_dispatch, 'status', lambda key: seen.append(key) or {
+            'ok': True, 'task_id': 't_1', 'state': 'running', 'terminal': False})
+        resp = live.get('/api/alert-remediation/status?alert_key=task%3At_exec')
+        assert resp.status == 200
+        assert resp.json['state'] == 'running'
+        assert seen == ['task:t_exec']
+
+    def test_status_route_without_an_alert_key_is_refused_not_a_500(self, live, svc):
+        resp = live.get('/api/alert-remediation/status')
+        assert resp.status == 200
+        assert resp.json == {'ok': False, 'error': 'invalid_alert_key', 'detail': 'alert_key is required'}
 
 
 # ==========================================================================

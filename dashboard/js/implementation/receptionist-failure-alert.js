@@ -14,7 +14,21 @@
  *
  * Same injected http/doc/setInterval shape as IntakeHaltAlert, so it's
  * unit-testable without a browser.
+ *
+ * Every failure card also carries a third button, "Execute agent" (preserving
+ * "Got it" and "Show more" exactly as before): it builds a copy-paste
+ * remediation prompt from the alert's own metadata
+ * (abstract/remediation-prompt.js) and POSTs it once to
+ * /api/alert-remediation/dispatch, which is idempotent per alert key on the
+ * server side. The model selector next to it is read from
+ * /api/remediation-models (monitoring/model_registry.py) so Claude Opus shows
+ * disabled with the registry's own explanation rather than ever being offered
+ * as a fake option.
  */
+
+import { modelOptionState, pickProvider } from "../abstract/model-choice.js";
+import { buildRemediationPrompt } from "../abstract/remediation-prompt.js";
+
 export class ReceptionistFailureAlert {
   constructor({
     http,
@@ -24,6 +38,8 @@ export class ReceptionistFailureAlert {
     storage = safeStorage(globalThis),
     intervalMs = 10000,
     setInterval: setIntervalFn = globalThis.setInterval?.bind(globalThis),
+    setTimeout: setTimeoutFn = globalThis.setTimeout?.bind(globalThis),
+    now = () => Date.now(),
   } = {}) {
     if (!http)
       throw new Error("ReceptionistFailureAlert requires an HttpClient");
@@ -34,11 +50,14 @@ export class ReceptionistFailureAlert {
     this._storage = storage;
     this._intervalMs = intervalMs;
     this._setInterval = setIntervalFn;
+    this._setTimeout = setTimeoutFn;
+    this._now = now;
     this._cards = new Map(); // key -> element
     this._container = null;
     this._bar = null;
     this._barLabel = null;
     this._hidden = new Set(); // unackable keys hidden on this page
+    this._modelOptionsPromise = null; // fetched once, shared by every card
   }
 
   start() {
@@ -297,6 +316,8 @@ export class ReceptionistFailureAlert {
       ack.addEventListener("click", () => this.acknowledge(key, alert));
       card.appendChild(ack);
     }
+    if (tone.name === "failed")
+      card.appendChild(this._executeBlock(key, alert, tone));
     if (long) {
       const more = this._doc.createElement("button");
       more.type = "button";
@@ -345,6 +366,199 @@ export class ReceptionistFailureAlert {
     this._box().appendChild(card);
     return card;
   }
+
+  /**
+   * The "Execute agent" button, its model selector, a status line and a
+   * read-only copy of the remediation prompt. Always exactly these three
+   * primary buttons on a failure card: "Got it", "Show more" (when the text
+   * is long enough to clamp) and this one; the model selector is secondary
+   * chrome below them, not a fourth button.
+   */
+  _executeBlock(key, alert, tone) {
+    const wrap = this._doc.createElement("div");
+    wrap.className = "receptionist-failure-alert-execute-wrap";
+    Object.assign(wrap.style, { marginTop: "8px" });
+
+    const execute = this._doc.createElement("button");
+    execute.type = "button";
+    execute.className = "receptionist-failure-alert-execute";
+    execute.textContent = "Execute agent";
+    Object.assign(execute.style, buttonStyle(tone.background));
+    wrap.appendChild(execute);
+
+    const modelLabel = this._doc.createElement("label");
+    modelLabel.className = "receptionist-failure-alert-model-label";
+    Object.assign(modelLabel.style, {
+      marginLeft: "8px",
+      fontSize: "12px",
+      verticalAlign: "middle",
+    });
+    modelLabel.textContent = "Model: ";
+    const modelSelect = this._doc.createElement("select");
+    modelSelect.className = "receptionist-failure-alert-model-select";
+    const sonnetOption = this._doc.createElement("option");
+    sonnetOption.value = "claude-sonnet";
+    sonnetOption.textContent = "Claude Sonnet";
+    const opusOption = this._doc.createElement("option");
+    opusOption.value = "claude-opus";
+    opusOption.textContent = "Claude Opus (checking availability…)";
+    opusOption.disabled = true;
+    modelSelect.appendChild(sonnetOption);
+    modelSelect.appendChild(opusOption);
+    modelSelect.value = "claude-sonnet"; // default, mirrored for the fake-DOM test double
+    modelLabel.appendChild(modelSelect);
+    wrap.appendChild(modelLabel);
+
+    const status = this._doc.createElement("div");
+    status.className = "receptionist-failure-alert-dispatch-status";
+    Object.assign(status.style, { marginTop: "6px", fontSize: "12px" });
+    wrap.appendChild(status);
+
+    const promptBox = this._doc.createElement("textarea");
+    promptBox.className = "receptionist-failure-alert-prompt";
+    promptBox.readOnly = true;
+    promptBox.setAttribute("aria-label", "Copy-paste remediation prompt");
+    Object.assign(promptBox.style, {
+      display: "block",
+      width: "100%",
+      marginTop: "6px",
+      minHeight: "70px",
+      fontFamily: "monospace",
+      fontSize: "11px",
+      color: "#222",
+      boxSizing: "border-box",
+    });
+    promptBox.value = buildRemediationPrompt(alert);
+    wrap.appendChild(promptBox);
+
+    this._ensureModelOptions().then((payload) => {
+      const provider = pickProvider(payload?.providers, "claude-opus");
+      const { enabled, reason } = modelOptionState(provider);
+      opusOption.disabled = !enabled;
+      opusOption.textContent = enabled
+        ? "Claude Opus"
+        : `Claude Opus (unavailable: ${reason})`;
+    });
+
+    execute.addEventListener("click", () =>
+      this._executeAgent(key, alert, {
+        execute,
+        status,
+        modelSelect,
+        promptBox,
+      }),
+    );
+    return wrap;
+  }
+
+  /** Fetched once per instance and shared by every card's model selector. */
+  _ensureModelOptions() {
+    if (!this._modelOptionsPromise) {
+      this._modelOptionsPromise = this._http
+        .getJSON("/api/remediation-models")
+        .catch(() => null);
+    }
+    return this._modelOptionsPromise;
+  }
+
+  /**
+   * Submits exactly one idempotent remediation task for this alert key.
+   * Disabling the button synchronously, before the POST even starts, is what
+   * stops a duplicate click (or a second click while the first is still in
+   * flight) from submitting twice; the server's own ledger
+   * (remediation_dispatch.py) is the second, authoritative guard across tabs
+   * and reloads. A failed or unsupported dispatch re-enables the button for a
+   * retry and never claims the agent ran.
+   */
+  async _executeAgent(key, alert, els) {
+    const { execute, status, modelSelect, promptBox } = els;
+    if (execute.disabled) return;
+    execute.disabled = true;
+    status.textContent = "Submitting…";
+    // Exactly the prompt the user is looking at in the box -- never a rebuilt one.
+    const prompt = promptBox.value;
+    let response;
+    try {
+      response = await this._http.postJSON("/api/alert-remediation/dispatch", {
+        alert_key: key,
+        model_id: modelSelect.value,
+        prompt,
+        title: alert.title || "",
+        agent: alert.agent || "",
+        task_id: (alert.ids || [])[0] || "",
+      });
+    } catch (err) {
+      status.textContent = `Could not reach the dashboard to dispatch (${err?.message || err}). Copy the prompt below instead.`;
+      execute.disabled = false;
+      return;
+    }
+    if (response?.ok) {
+      status.textContent = response.already_submitted
+        ? `Already submitted — task ${response.task_id || "pending"} (${response.status || "submitted"}).`
+        : `Submitted — task ${response.task_id || "pending"} (${response.status || "queued"}).`;
+      // Stays disabled: one idempotent task per alert, not resubmitted.
+      this._watchRemediation(key, status, response.task_id, this._now());
+    } else {
+      status.textContent = `Not executed: ${response?.detail || response?.error || "the agent could not be dispatched"}. Copy the prompt below instead.`;
+      execute.disabled = false;
+    }
+  }
+
+  /**
+   * Follows the dispatched task through /api/alert-remediation/status until it
+   * finishes, the card goes away, or WATCH_LIMIT_MS passes -- bounded, never
+   * an indefinite poll. The Bridge token stays on the server; this only ever
+   * names the alert key.
+   */
+  _watchRemediation(key, status, taskId, startedAt) {
+    if (!this._setTimeout) return;
+    const elapsed = this._now() - startedAt;
+    if (elapsed >= WATCH_LIMIT_MS) {
+      status.textContent = `Task ${taskId} is still running on the Bridge after ${minutes(elapsed)}; stopped watching here — see Worker Activity for its result.`;
+      return;
+    }
+    const delay = elapsed < 60000 ? WATCH_FAST_MS : WATCH_SLOW_MS;
+    this._setTimeout(async () => {
+      if (!this._cards.has(key)) return; // card dismissed: stop watching
+      let live;
+      try {
+        live = await this._http.getJSON(
+          `/api/alert-remediation/status?alert_key=${encodeURIComponent(key)}`,
+        );
+      } catch (err) {
+        live = { ok: false, detail: err?.message || String(err) };
+      }
+      const since = minutes(this._now() - startedAt);
+      if (live?.ok && live.terminal) {
+        status.textContent = live.succeeded
+          ? `Completed — task ${taskId} succeeded after ${since}.${live.summary ? ` ${live.summary}` : ""}`
+          : `Agent task ${taskId} ended ${live.state}${live.detail ? `: ${live.detail}` : ""}.`;
+        return;
+      }
+      if (live?.ok) {
+        status.textContent = `Task ${taskId}: ${live.state} (${since}).`;
+      } else if (
+        live?.error === "status_unsupported" ||
+        live?.error === "not_submitted"
+      ) {
+        status.textContent = `Submitted — task ${taskId}; progress isn't available from this host (${live.detail}).`;
+        return;
+      } else {
+        status.textContent = `Task ${taskId}: status unavailable (${live?.detail || live?.error || "no answer"}); retrying.`;
+      }
+      this._watchRemediation(key, status, taskId, startedAt);
+    }, delay);
+  }
+}
+
+/** Progress polling: every 5s for the first minute, then every 15s, for at most 45 minutes. */
+const WATCH_FAST_MS = 5000;
+const WATCH_SLOW_MS = 15000;
+const WATCH_LIMIT_MS = 45 * 60 * 1000;
+
+function minutes(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 const HEARD_KEY = "receptionist-failure-alerts:heard";

@@ -45,6 +45,7 @@ GET_ROUTES = [
     '/api/vendor-keys', '/api/voice-media-backend', '/api/wsl-interop',
     '/api/agent-bridge-poll',
     '/api/printer', '/api/worker-activity', '/api/adw-debugger/feed',
+    '/api/remediation-models', '/api/alert-remediation/status',
     '/report-source-document',
     '/api/scan-bridge/v1/scans', '/api/scan-bridge/v1/scans/scan_01ARZ3NDEKTSV4RRFFQ69G5FAV',
 ]
@@ -69,6 +70,7 @@ POST_ROUTES = [
     '/api/note-write',
     '/api/open-supporting-document', '/api/process-document', '/api/process-pdf',
     '/api/recategorize-expense', '/api/receipt-lookup', '/api/receipts-present',
+    '/api/alert-remediation/dispatch',
     '/api/mazda-turn', '/api/receptionist-alerts/ack', '/api/receptionist-compact', '/api/receptionist-intent',
     '/api/receptionist-turn',
     '/api/sydney-turn',
