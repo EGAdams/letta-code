@@ -1,5 +1,7 @@
 // Browser acceptance run for the ADW debugger, in Chrome, against real pilot runs.
 //
+//   ADW_DEBUGGER_ADWS=adw_debug_pilot ADW_DEBUGGER_STALL_SECONDS=4 python3 e2e/dev_server.py 8795   (pilot only:
+//     the debugger follows the newest ADW of any kind, so another one starting would take the view)
 //   E2E_BASE=http://127.0.0.1:8795/ E2E_STALL_TIMEOUT=4 node e2e/run.mjs [scenario ...]
 //
 // Every scenario starts the real adw_debug_pilot.py, which writes to the real
@@ -39,7 +41,7 @@ const snapshot = () => page.evaluate(() => {
     instance: box.dataset.instance, status: box.dataset.status, selected: box.classList.contains('sd-selected'),
     background: getComputedStyle(box).backgroundColor, text: box.textContent.replace(/\s+/g, ' ').trim() }))
   return {
-    run: text('[data-field="run"]').replace('run ', ''), status: text('[data-field="status"]'), mode: text('[data-field="mode"]'),
+    headline: text('[data-field="headline"]'), run: text('[data-field="run"]').replace('run ', ''), status: text('[data-field="status"]'), mode: text('[data-field="mode"]'),
     top: boxes('top'), bottom: boxes('bottom'),
     labels: [...document.querySelectorAll('#adw-debugger-root .sd-label')].map(label => label.textContent),
     lines: [...document.querySelectorAll('#adw-debugger-root .adwdbg-log-line')].map(line => ({ run: line.dataset.run, kind: line.dataset.kind, text: line.textContent })),
@@ -142,19 +144,15 @@ const scenarios = {
   async failure() {
     const bad = id('bad'); const next = id('nxt')
     check((await pilot(bad, '--pace', '0.4', '--fail-at', 'lookup-2')) === 1, 'the failing pilot exited 1')
-    let state = await until('failed run pinned with a red phase', s => s.run === bad && s.mode === 'Pinned after failure' && box(s, 'lookup-2')?.status === 'fail')
+    let state = await until('failed run shown with a red phase', s => s.run === bad && s.status === 'fail' && box(s, 'lookup-2')?.status === 'fail')
+    check(state.headline.startsWith('Failed:') && state.headline.includes('lookup'), 'the headline says which step failed')
     check(box(state, 'lookup-2').background === COLOURS.fail && state.bottom.find(e => e.instance === `${bad}:lookup-2`).background === COLOURS.fail, 'both boxes red')
     check(state.lines.some(l => l.run === bad && l.kind === 'cleanup' && l.text.includes(`${bad}_03_lookup`) === false && l.text.includes('cleanup ok')), 'cleanup evidence recorded despite the exception')
     check(state.lines.filter(l => l.run === bad && l.text.includes('never executed')).length === 2, 'the two phases that never ran say so')
+    await page.screenshot({ path: `${SHOTS}/failure-shown.png`, fullPage: true })
     const done = pilot(next, '--pace', '2')
-    await until('the later run is being received', s => s.lines.some(l => l.run === next))
-    state = await snapshot()
-    check(state.run === bad && state.mode === 'Pinned after failure' && box(state, 'lookup-2').status === 'fail', 'a later run did not replace the pinned failure')
-    await page.screenshot({ path: `${SHOTS}/failure-pinned.png`, fullPage: true })
-    await click('all-events')
-    check((await snapshot()).run === bad, 'All events does not release the pin')
-    await click('follow-live')
-    state = await until('Follow live released the pin', s => s.run === next && s.mode === 'Live')
+    state = await until('the freshly started run replaced the failure', s => s.run === next && s.mode === 'Live')
+    check(state.headline.startsWith('Running now:'), 'the headline says it is running now')
     await done
     return `failed run ${bad}; later run ${next}`
   },
@@ -164,18 +162,9 @@ const scenarios = {
     const a = pilot(first, '--pace', '1.2')
     await until('first run live', s => s.run === first && s.mode === 'Live')
     const b = pilot(second, '--pace', '1.2')
-    await until('second run is being received', s => s.lines.some(l => l.run === second))
-    for (let i = 0; i < 20; i += 1) {
-      const state = await snapshot()
-      if (state.status !== 'running') break
-      check(state.run === first, 'the active selection was not stolen')
-      check(state.top.every(entry => entry.instance === '@runner' || entry.instance.startsWith(`${first}:`) || entry.instance.startsWith(`${first}_`)), 'no column from the other run')
-      await sleep(200)
-    }
-    await a
-    const state = await until('view moved to the still-running second run', s => s.run === second)
-    check(state.top.every(entry => entry.instance === '@runner' || entry.instance.startsWith(second)), 'identities did not mix after the switch')
-    await b
+    const state = await until('the freshest run took the view', s => s.run === second)
+    check(state.top.every(entry => entry.instance === '@runner' || entry.instance.startsWith(second)), 'no column from the other run')
+    await Promise.all([a, b])
     return `runs ${first} then ${second}`
   },
 

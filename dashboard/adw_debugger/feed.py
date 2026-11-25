@@ -42,12 +42,14 @@ class AdwDebuggerFeed:
         try:
             repository: IAdwEventRepository = self._repository_for(settings.db_path)
             head = repository.head_cursor()      # read first: later rows are simply delivered next time
-            runs = repository.recent_runs(settings.adw_names, settings.bootstrap_runs)
+            runs = repository.recent_runs(settings.adw_names, settings.bootstrap_runs,
+                                          settings.exclude_adws)
             if after is None:
                 raw = repository.events_for_runs([run.run_id for run in runs])
                 full_page = False
             else:
-                raw = repository.events_after(after, settings.adw_names, settings.page_limit)
+                raw = repository.events_after(after, settings.adw_names, settings.page_limit,
+                                              settings.exclude_adws)
                 full_page = len(raw) >= settings.page_limit
         except Exception as error:               # noqa: BLE001 -- a broken trace db must not break the page
             response.ok, response.error = False, f'{type(error).__name__}: {error}'

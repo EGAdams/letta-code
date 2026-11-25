@@ -8,9 +8,10 @@ from pydantic import BaseModel, Field
 
 class DebuggerSettings(BaseModel):
     db_path: str
-    adw_names: list[str] = Field(default_factory=lambda: [
-        'adw_debug_pilot', 'adw_interface_scala_file_scan',
-        'adw_interface_finance_intake'])
+    # '*' follows every ADW that records into sssf.db, so the newest one started
+    # is the one on screen. A list of names follows only those.
+    adw_names: list[str] = Field(default_factory=lambda: ['*'])
+    exclude_adws: list[str] = Field(default_factory=list)
     stall_timeout_seconds: float = 120.0
     bootstrap_runs: int = 5
     page_limit: int = 1000

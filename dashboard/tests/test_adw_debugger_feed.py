@@ -80,13 +80,14 @@ def test_incremental_read_delivers_only_newer_monitored_events(trace):
     trace.run('r1')
     trace.run('other', adw='adw_bridge_worker')
     trace.event('r1', 'phase_start', {}, 'r1_01_a', 'a')
-    first = feed(trace).read(None)
+    named = dict(adw_names=['adw_debug_pilot'])
+    first = feed(trace, **named).read(None)
     trace.event('other', 'log', {'message': 'not ours'})
     trace.event('r1', 'phase_end', {'status': 'fail'}, 'r1_01_a', 'a')
-    second = feed(trace).read(first.cursor)
+    second = feed(trace, **named).read(first.cursor)
     assert [(e.kind, e.status) for e in second.events] == [('phase_end', 'fail')]
     assert second.cursor == 3
-    assert feed(trace).read(second.cursor).events == []
+    assert feed(trace, **named).read(second.cursor).events == []
 
 
 def test_resending_a_cursor_redelivers_the_same_events_and_no_gap(trace):
@@ -142,15 +143,27 @@ def test_old_runs_beyond_the_bootstrap_window_are_left_out_unless_running(trace)
     assert ids == ['old-running', 'done2', 'done3']
 
 
-def test_scala_is_visible_by_default_alongside_the_pilot(trace):
+def test_every_adw_is_visible_by_default(trace):
     trace.run('scala', adw='adw_interface_scala_file_scan', status='success')
     trace.event('scala', 'log', {'adw_debug': {'kind': 'constructed',
                 'instance_id': 'scala:read_text', 'phase_name': 'read_text', 'class_name': 'ReadTextPhase'}})
     trace.event('scala', 'phase_start', {}, 'scala_03_read_text', 'read_text')
     trace.event('scala', 'phase_end', {'status': 'success'}, 'scala_03_read_text', 'read_text')
     trace.run('pilot', status='success')
-    trace.run('excluded', adw='adw_bridge_worker')
+    trace.run('worker', adw='adw_bridge_worker')
     result = feed(trace).read(None)
-    assert {run.adw_name for run in result.runs} == {'adw_debug_pilot', 'adw_interface_scala_file_scan'}
+    assert {run.adw_name for run in result.runs} == {
+        'adw_debug_pilot', 'adw_interface_scala_file_scan', 'adw_bridge_worker'}
     assert [e.kind for e in result.events] == ['constructed', 'phase_start', 'phase_end']
     assert result.events[-1].status == 'pass'
+
+
+def test_an_excluded_adw_is_left_out_of_runs_and_live_events(trace):
+    trace.run('scala', adw='adw_interface_scala_file_scan')
+    trace.run('worker', adw='adw_bridge_worker')
+    quiet = dict(exclude_adws=['adw_bridge_worker'])
+    first = feed(trace, **quiet).read(None)
+    assert [run.run_id for run in first.runs] == ['scala']
+    trace.event('worker', 'log', {'message': 'muted'})
+    trace.event('scala', 'log', {'message': 'shown'})
+    assert [e.run_id for e in feed(trace, **quiet).read(first.cursor).events] == ['scala']

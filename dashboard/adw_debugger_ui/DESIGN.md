@@ -1,7 +1,10 @@
 # Live ADW Sequence Debugger
 
 A sequence diagram above the Terminal tab's stream that follows one ADW run as
-it executes. Each column is one backend phase instance. Clicking either of its
+it executes -- whichever ADW was started most recently. The line at the top
+says in a few words which ADW that is and what the diagram shows of it
+("Running now: Scala file scan -- step 3 of 7, read text", "Failed: Debug
+pilot -- stopped at step 2 of 5, lookup"); `headline()` in `src/domain/view.ts`. Each column is one backend phase instance. Clicking either of its
 boxes filters the terminal to that instance's recorded and incoming events.
 
 ## The route one event takes
@@ -48,11 +51,14 @@ left exactly as it was.
 | Key | Env | Default |
 |---|---|---|
 | `stall_timeout_seconds` | `ADW_DEBUGGER_STALL_SECONDS` | `120` |
-| `adw_names` | `ADW_DEBUGGER_ADWS` (comma separated) | `["adw_debug_pilot", "adw_interface_scala_file_scan"]` |
+| `adw_names` | `ADW_DEBUGGER_ADWS` (comma separated) | `["*"]` -- every ADW that records into `sssf.db` |
+| `exclude_adws` | `ADW_DEBUGGER_EXCLUDE` (comma separated) | `[]` -- e.g. `["adw_bridge_worker"]` to keep a busy one off the screen |
 | `db_path` | `ADW_DEBUGGER_DB` | `~/agent_blocks/adws/adw_data/sssf.db` |
 | `bootstrap_runs` | | `5` |
 
-Adding an ADW to the debugger is one name in `adw_names`. To get waiting
+Every ADW is followed by default; an ADW too busy to be worth watching is one
+name in `exclude_adws`. ADWs that don't wrap their steps still draw: one column
+per SSSF phase, named after its `phase_id`. To get waiting
 columns, purposes and cleanup evidence the pilot wraps its steps in `MonitoredPhase`.
 Scala wraps her existing IPhase objects in `adw_modules.monitored_phase.MonitoredSssfPhase`;
 this preserves their handles, params and results. Its cleanup event means only
@@ -103,7 +109,10 @@ no outcome. The left axis is time since the run's first event.
 - **Problem.** "Which run do we follow", "is this stalled" and "what goes wrong
   in this test run" are policies that will change independently of the code
   that asks.
-- **Files.** `IRunSelectionPolicy` -> `src/domain/run-selection.ts`;
+- **Files.** `IRunSelectionPolicy` -> `src/domain/run-selection.ts`
+  (`NewestRunPolicy`, wired in `main.ts`: the freshest run started takes the
+  view; `EarliestActiveRunPolicy`, the earlier rule that pinned failures and
+  never let a second run steal the view, is kept and tested);
   `IStallPolicy` -> `src/domain/stall-policy.ts`;
   `IFaultInjector` -> `adws/debug_pilot/faults.py` (`NoFaults`, `PlannedFaults`).
 - **Example.** `stall.evaluate(phase, now, timeoutMs)` returns
@@ -146,8 +155,12 @@ no outcome. The left axis is time since the run's first event.
   cannot be produced or tested. Overlapping *runs* are tested.
 - **Polling, not push.** The feed is polled every 500 ms while the tab is in
   view and every 5 s otherwise, so an event can be up to that old when shown.
-- **Pins are per page load.** Reloading shows the active run, or the latest
-  finished one.
+- **The newest run always wins.** A run started while you read another, even
+  with a phase selected, takes the view. A failure stays on screen only until
+  the next ADW starts; its rows stay in the log pane.
+- **The e2e suite runs against the real `sssf.db`.** Start its dev server with
+  `ADW_DEBUGGER_ADWS=adw_debug_pilot`, or another ADW starting mid-run will
+  (correctly) take the view and fail a scenario.
 - **The diagram is a port, not Mermaid.** `SequenceDiagram.vue` is a Vue 3 /
   TypeScript port of `vue-sequence-diagram` (MIT), which draws with elements.
 

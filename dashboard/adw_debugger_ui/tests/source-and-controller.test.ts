@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ConnectionState, FeedPage } from "../src/contracts";
+import type {
+  ConnectionState,
+  FeedPage,
+  IRunSelectionPolicy,
+} from "../src/contracts";
 import { DebuggerController } from "../src/controller";
-import { EarliestActiveRunPolicy } from "../src/domain/run-selection";
+import {
+  EarliestActiveRunPolicy,
+  NewestRunPolicy,
+} from "../src/domain/run-selection";
 import { ProgressTimeoutStallPolicy } from "../src/domain/stall-policy";
 import type { DebuggerView } from "../src/domain/view";
 import { PollingEventSource } from "../src/infra/polling-event-source";
@@ -122,7 +129,9 @@ describe("polling event source", () => {
   });
 });
 
-function harness() {
+function harness(
+  selection: IRunSelectionPolicy = new EarliestActiveRunPolicy(),
+) {
   const source = new ManualSource();
   const clock = new FakeClock();
   const cleared = new MemoryClearStore();
@@ -134,7 +143,7 @@ function harness() {
     cleared,
     legacy,
     timer,
-    selection: new EarliestActiveRunPolicy(),
+    selection,
     stall: new ProgressTimeoutStallPolicy(),
     renderer: new LastGoodDiagramRenderer(),
   });
@@ -167,7 +176,7 @@ describe("controller", () => {
     expect(h.view()).toMatchObject({
       runId: null,
       mode: "idle",
-      modeLabel: "Idle -- no pilot run recorded yet",
+      modeLabel: "Idle -- no ADW run recorded yet",
     });
     expect(h.view().clearDisabledReason).toMatch(/No ADW run is selected/);
   });
@@ -417,5 +426,65 @@ describe("controller", () => {
       }),
     );
     expect(h.view().lastDelayMs).toBe(400);
+  });
+});
+
+describe("following the freshest ADW", () => {
+  it("moves to each newly started run and says in plain words what is on screen", () => {
+    const h = harness(new NewestRunPolicy());
+    h.source.push(page([], [], { bootstrap: true }));
+    expect(h.view().headline).toMatch(/No ADW has run yet/);
+
+    const scan = {
+      ...run("scan", "running", 0),
+      adw_name: "adw_interface_scala_file_scan",
+    };
+    h.source.push(
+      page(
+        [scan],
+        [
+          ...constructed("scan", "a", "read_text"),
+          ...constructed("scan", "b", "file_it"),
+          ...started("scan", "a", "read_text", 1),
+        ],
+      ),
+    );
+    expect(h.view()).toMatchObject({ runId: "scan", mode: "live" });
+    expect(h.view().headline).toBe(
+      "Running now: Scala file scan -- step 1 of 2, read text",
+    );
+
+    h.source.push(
+      page(
+        [
+          scan,
+          { ...run("relay", "running", 5), adw_name: "adw_chatgpt_relay" },
+        ],
+        [],
+      ),
+    );
+    expect(h.view().runId).toBe("relay");
+    expect(h.view().headline).toBe("Running now: Chatgpt relay -- starting up");
+  });
+
+  it("keeps a failure on screen until the next ADW starts, then shows that one", () => {
+    const h = harness(new NewestRunPolicy());
+    h.source.push(
+      page(
+        [run("r1", "fail")],
+        [
+          ...constructed("r1", "a", "a"),
+          ...started("r1", "a", "a", 1),
+          ...ended("r1", "a", "a", 1, "fail"),
+        ],
+      ),
+    );
+    expect(h.view().headline).toBe(
+      "Failed: Debug pilot -- stopped at step 1 of 1, a",
+    );
+    h.source.push(page([run("r1", "fail")], []));
+    expect(h.view().runId).toBe("r1");
+    h.source.push(page([run("r1", "fail"), run("r2", "running", 9)], []));
+    expect(h.view()).toMatchObject({ runId: "r2", mode: "live" });
   });
 });

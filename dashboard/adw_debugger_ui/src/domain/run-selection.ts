@@ -48,3 +48,31 @@ export class EarliestActiveRunPolicy implements IRunSelectionPolicy {
     return failed(selected) && !selection.pinReleased ? "pinned" : "completed";
   }
 }
+
+// Strategy: the freshest run is the one on screen.
+//
+//   any run starts           -> it takes the view, whatever was there before
+//   nothing newer has begun  -> stay on the selected run, finished or not, so a
+//                               failure stays readable until the next ADW starts
+//   on attach                -> the newest run recorded
+//
+// "Newest" is by start time, run id breaking a tie, so it agrees with the order
+// the ADWs were launched in rather than the order their events arrived.
+export class NewestRunPolicy implements IRunSelectionPolicy {
+  select(current: RunSelection, runs: RunSummary[]): RunSelection {
+    const newest = [...runs].sort(byStart).at(-1);
+    if (!newest) return { runId: null, pinReleased: false };
+    if (newest.runId === current.runId) return current;
+    return { runId: newest.runId, pinReleased: false };
+  }
+
+  followLive(current: RunSelection, runs: RunSummary[]): RunSelection {
+    return this.select(current, runs);
+  }
+
+  mode(selection: RunSelection, runs: RunSummary[]): RunMode {
+    const selected = runs.find((run) => run.runId === selection.runId);
+    if (!selected) return "idle";
+    return selected.status === "running" ? "live" : "completed";
+  }
+}

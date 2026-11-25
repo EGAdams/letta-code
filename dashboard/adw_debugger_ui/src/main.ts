@@ -3,7 +3,7 @@
 // terminal-page.js is, and mounts directly above the existing #terminal-stream.
 import { type App, createApp } from "vue";
 import { DebuggerController } from "./controller";
-import { EarliestActiveRunPolicy } from "./domain/run-selection";
+import { NewestRunPolicy } from "./domain/run-selection";
 import { ProgressTimeoutStallPolicy } from "./domain/stall-policy";
 import {
   DomLegacyTerminal,
@@ -45,7 +45,7 @@ export function mountAdwDebugger(
       isActive: () =>
         view.classList.contains("active") && doc.visibilityState !== "hidden",
     }),
-    selection: new EarliestActiveRunPolicy(),
+    selection: new NewestRunPolicy(),
     stall: new ProgressTimeoutStallPolicy(),
     renderer: new LastGoodDiagramRenderer(),
     cleared: new LocalStorageClearStore(),

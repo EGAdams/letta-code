@@ -38,6 +38,8 @@ class FileAndEnvSettings:
             values['db_path'] = env['ADW_DEBUGGER_DB']
         if env.get('ADW_DEBUGGER_ADWS'):
             values['adw_names'] = [n.strip() for n in env['ADW_DEBUGGER_ADWS'].split(',') if n.strip()]
+        if env.get('ADW_DEBUGGER_EXCLUDE'):
+            values['exclude_adws'] = [n.strip() for n in env['ADW_DEBUGGER_EXCLUDE'].split(',') if n.strip()]
         if env.get('ADW_DEBUGGER_STALL_SECONDS'):
             values['stall_timeout_seconds'] = float(env['ADW_DEBUGGER_STALL_SECONDS'])
         values['db_path'] = os.path.expanduser(str(values['db_path']))

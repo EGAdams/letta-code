@@ -21,6 +21,8 @@ import {
 export interface DebuggerView {
   runId: string | null;
   adwName: string;
+  /** A few plain words: which ADW is on screen and what the diagram shows of it. */
+  headline: string;
   runStatus: RunStatus | null;
   mode: RunMode;
   modeLabel: string;
@@ -37,7 +39,7 @@ export interface DebuggerView {
 }
 
 const MODE_LABEL: Record<RunMode, string> = {
-  idle: "Idle -- no pilot run recorded yet",
+  idle: "Idle -- no ADW run recorded yet",
   live: "Live",
   completed: "Completed",
   pinned: "Pinned after failure",
@@ -212,6 +214,49 @@ export function diagramFor(
   return { runId: run.runId, columns, rows };
 }
 
+/** "adw_interface_scala_file_scan" -> "Scala file scan". */
+export function friendlyAdwName(adwName: string): string {
+  const words = adwName
+    .replace(/\.py$/, "")
+    .replace(/^adw_/, "")
+    .replace(/^(interface|op)_/, "")
+    .replace(/_/g, " ")
+    .trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "An ADW";
+}
+
+/** One line for the top of the panel, e.g. "Running now: Scala file scan -- step 3 of 7, read text". */
+export function headline(run: RunState | undefined): string {
+  if (!run) return "No ADW has run yet -- the next one started will show here";
+  const name = friendlyAdwName(run.adwName);
+  const phases = run.visible.map((id) => run.phases[id]).filter(Boolean);
+  const total = phases.length;
+  const open = phases.filter((phase) => phase.started && !isTerminal(phase));
+  const current = open.at(-1);
+  const failed = phases.find((phase) => phase.outcome === "fail");
+  const step = (phase: PhaseState) =>
+    `step ${phases.indexOf(phase) + 1} of ${total}, ${phase.name.replace(/_/g, " ")}`;
+  const plural = (count: number) => `${count} step${count === 1 ? "" : "s"}`;
+  switch (run.status) {
+    case "running":
+      if (current) return `Running now: ${name} -- ${step(current)}`;
+      if (total === 0) return `Running now: ${name} -- starting up`;
+      return `Running now: ${name} -- between steps, ${phases.filter((p) => p.outcome).length} of ${total} done`;
+    case "success":
+      return `Finished: ${name} -- all ${plural(total)} passed`;
+    case "fail":
+      return failed
+        ? `Failed: ${name} -- stopped at ${step(failed)}`
+        : `Failed: ${name} -- after ${plural(total)}`;
+    case "interrupted":
+      return current
+        ? `Stopped: ${name} -- its process ended during ${step(current)}`
+        : `Stopped: ${name} -- its process ended without finishing`;
+    default:
+      return `${name} -- ${plural(total)}`;
+  }
+}
+
 export function describe(
   run: RunState | undefined,
   mode: RunMode,
@@ -223,6 +268,7 @@ export function describe(
       ? state.runs[filter.runId]?.phases[filter.instanceId]
       : undefined;
   return {
+    headline: headline(run),
     modeLabel: MODE_LABEL[mode],
     filterLabel:
       filter.mode === "all"

@@ -23,10 +23,11 @@ const LEGEND = [
 <template>
   <section v-if="view" class="adwdbg" aria-label="Live ADW sequence debugger">
     <header class="adwdbg-head">
-      <strong class="adwdbg-title">ADW sequence</strong>
+      <strong class="adwdbg-title" data-field="headline" :title="view.adwName || undefined"
+              aria-live="polite">{{ view.headline }}</strong>
       <template v-if="view.runId">
-        <span data-field="adw">{{ view.adwName }}</span>
-        <span data-field="run">run {{ view.runId }}</span>
+        <span data-field="adw" class="adwdbg-note">{{ view.adwName }}</span>
+        <span data-field="run" class="adwdbg-note">run {{ view.runId }}</span>
         <span class="adwdbg-chip" :data-run-status="view.runStatus" data-field="status">{{ view.runStatus }}</span>
       </template>
       <span class="adwdbg-chip" :data-mode="view.mode" data-field="mode">{{ view.modeLabel }}</span>
@@ -51,7 +52,7 @@ const LEGEND = [
                      @phase-click="props.controller.selectPhase($event)"
                      @runner-click="props.controller.allEvents()" />
     <p v-else class="adwdbg-idle" data-field="idle">
-      {{ view.runId ? 'This run has not constructed a phase yet.' : 'No pilot ADW run has been recorded yet.' }}
+      {{ view.runId ? 'This run has not started a step yet.' : 'No ADW run has been recorded yet.' }}
     </p>
 
     <div class="adwdbg-bar">

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { RunSummary } from "../src/contracts";
 import { clearRun, linesFor } from "../src/domain/log-selection";
 import { project } from "../src/domain/projector";
-import { EarliestActiveRunPolicy } from "../src/domain/run-selection";
+import {
+  EarliestActiveRunPolicy,
+  NewestRunPolicy,
+} from "../src/domain/run-selection";
 import { ProgressTimeoutStallPolicy } from "../src/domain/stall-policy";
 import { emptyState } from "../src/domain/state";
 import {
@@ -117,6 +120,37 @@ describe("run selection", () => {
         summary("new", "success", "10:00"),
       ]).runId,
     ).toBe("new");
+    expect(policy.mode(none, [])).toBe("idle");
+  });
+});
+
+describe("newest run selection", () => {
+  const policy = new NewestRunPolicy();
+
+  it("hands the view to whichever run started last, finished or not", () => {
+    const runs = [
+      summary("old", "running", "10:00"),
+      summary("new", "success", "10:05"),
+    ];
+    expect(policy.select(none, runs).runId).toBe("new");
+    expect(policy.mode({ runId: "new", pinReleased: false }, runs)).toBe(
+      "completed",
+    );
+  });
+
+  it("keeps a failed run until another starts, then moves to it", () => {
+    const failed = [summary("bad", "fail", "10:00")];
+    const kept = policy.select(none, failed);
+    expect(policy.select(kept, failed)).toBe(kept);
+    const next = policy.select(kept, [
+      ...failed,
+      summary("next", "running", "10:01"),
+    ]);
+    expect(next.runId).toBe("next");
+  });
+
+  it("is idle with nothing recorded", () => {
+    expect(policy.select(none, [])).toEqual(none);
     expect(policy.mode(none, [])).toBe("idle");
   });
 });
