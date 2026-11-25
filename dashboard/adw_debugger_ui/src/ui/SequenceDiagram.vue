@@ -11,7 +11,7 @@
 // top and bottom, lifelines between, one row per message, a time column on the
 // left. Positions come from ./sequence/geometry.ts. All text is interpolated,
 // never rendered as HTML.
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { DiagramColumn, DiagramModel } from '../contracts'
 import Lifeline from './sequence/Lifeline.vue'
 import MessageArrow from './sequence/MessageArrow.vue'
@@ -25,6 +25,18 @@ const props = withDefaults(defineProps<{ model: DiagramModel; hint?: string }>()
 const emit = defineEmits<{ 'phase-click': [instanceId: string]; 'runner-click': [] }>()
 
 const zoom = ref(1)
+
+// The top row stays pinned while scrolling, and lets go once the bottom row is in view.
+const scroller = ref<HTMLElement | null>(null)
+const bottomRow = ref<HTMLElement | null>(null)
+const bottomInView = ref(false)
+let watcher: IntersectionObserver | null = null
+onMounted(() => {
+  if (typeof IntersectionObserver === 'undefined' || !scroller.value || !bottomRow.value) return
+  watcher = new IntersectionObserver(([entry]) => { bottomInView.value = entry.isIntersecting }, { root: scroller.value })
+  watcher.observe(bottomRow.value)
+})
+onBeforeUnmount(() => watcher?.disconnect())
 const count = computed(() => Math.max(1, props.model.columns.length))
 const rowCount = computed(() => props.model.rows.length)
 const minWidth = computed(() => `${AXIS_WIDTH + count.value * COLUMN_MIN_WIDTH}px`)
@@ -44,12 +56,10 @@ function select(column: DiagramColumn): void {
       <button type="button" class="sd-zoom" @click="zoom = 1">Reset</button>
       <span class="sd-hint">{{ hint }}</span>
     </div>
-    <div class="sd-scroll">
+    <div ref="scroller" class="sd-scroll">
       <div class="sd-canvas" :style="{ zoom, minWidth }">
-        <!-- The top row is sticky inside .sd-frozen, which ends where the bottom row starts:
-             it stays pinned while scrolling and lets go as the bottom row comes into view. -->
         <div class="sd-frozen">
-          <div class="sd-titles sd-titles-top" :style="{ paddingLeft: `${AXIS_WIDTH}px` }">
+          <div class="sd-titles sd-titles-top" :class="{ 'sd-pinned': !bottomInView }" :style="{ paddingLeft: `${AXIS_WIDTH}px` }">
             <ParticipantBox v-for="column in model.columns" :key="column.instanceId" :column="column" edge="top"
                             @select="select" />
           </div>
@@ -62,7 +72,7 @@ function select(column: DiagramColumn): void {
             </div>
           </div>
         </div>
-        <div class="sd-titles sd-titles-bottom" :style="{ marginLeft: `${AXIS_WIDTH}px` }">
+        <div ref="bottomRow" class="sd-titles sd-titles-bottom" :style="{ marginLeft: `${AXIS_WIDTH}px` }">
           <ParticipantBox v-for="column in model.columns" :key="column.instanceId" :column="column" edge="bottom"
                           @select="select" />
         </div>
@@ -83,8 +93,8 @@ function select(column: DiagramColumn): void {
 
 /* Participant boxes: rounded, raised, the status colour under a soft sheen. */
 .sd-titles { display: flex; }
-.sd-titles-top { position: sticky; top: 0; z-index: 3; padding-top: 10px; padding-bottom: 6px; margin-top: -10px;
-  background: #fff; box-shadow: 0 3px 4px -3px rgba(0, 0, 0, .25); }
+.sd-titles-top { padding-top: 10px; padding-bottom: 6px; margin-top: -10px; background: #fff; }
+.sd-titles-top.sd-pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 3px 4px -3px rgba(0, 0, 0, .25); }
 .sd-box { flex: 1 1 0; min-width: 0; margin: 0 10px; padding: 6px 8px; border: 1px solid rgba(0, 0, 0, .28);
   border-radius: 7px; display: flex; flex-direction: column; gap: 1px; align-items: center; cursor: pointer;
   font: inherit; text-align: center; overflow-wrap: anywhere; box-shadow: 2px 3px 5px rgba(0, 0, 0, .22);
