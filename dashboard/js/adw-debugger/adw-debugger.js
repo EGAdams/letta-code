@@ -4532,7 +4532,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
       }, j(n.elapsed), 5))), 128))
     ], 4));
   }
-}), Ac = { class: "sd" }, Cc = { class: "sd-tools" }, $c = { class: "sd-zoom-value" }, Ec = { class: "sd-hint" }, Tc = { class: "sd-scroll" }, Rc = /* @__PURE__ */ Ge({
+}), Ac = { class: "sd" }, Cc = { class: "sd-tools" }, $c = { class: "sd-zoom-value" }, Ec = { class: "sd-hint" }, Tc = { class: "sd-scroll" }, Rc = { class: "sd-frozen" }, Mc = /* @__PURE__ */ Ge({
   __name: "SequenceDiagram",
   props: {
     model: {},
@@ -4571,42 +4571,44 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
           class: "sd-canvas",
           style: pe({ zoom: r.value, minWidth: l.value })
         }, [
-          M("div", {
-            class: "sd-titles sd-titles-top",
-            style: pe({ marginLeft: `${He(St)}px` })
-          }, [
-            (F(!0), B(Z, null, Qe(f.model.columns, (p) => (F(), et(Un, {
-              key: p.instanceId,
-              column: p,
-              edge: "top",
-              onSelect: a
-            }, null, 8, ["column"]))), 128))
-          ], 4),
-          M("div", {
-            class: "sd-body",
-            style: pe({ height: `${He(ti)(o.value)}px` })
-          }, [
-            be(Ic, {
-              rows: f.model.rows
-            }, null, 8, ["rows"]),
+          M("div", Rc, [
             M("div", {
-              class: "sd-plot",
-              style: pe({ left: `${He(St)}px` })
+              class: "sd-titles sd-titles-top",
+              style: pe({ paddingLeft: `${He(St)}px` })
             }, [
-              (F(!0), B(Z, null, Qe(f.model.columns, (p, m) => (F(), et(mc, {
+              (F(!0), B(Z, null, Qe(f.model.columns, (p) => (F(), et(Un, {
                 key: p.instanceId,
                 column: p,
-                centre: He(Us)(m, i.value),
-                rows: o.value
-              }, null, 8, ["column", "centre", "rows"]))), 128)),
-              (F(!0), B(Z, null, Qe(f.model.rows, (p, m) => (F(), et(yc, {
-                key: p.id,
-                row: p,
-                index: m,
-                count: i.value
-              }, null, 8, ["row", "index", "count"]))), 128))
+                edge: "top",
+                onSelect: a
+              }, null, 8, ["column"]))), 128))
+            ], 4),
+            M("div", {
+              class: "sd-body",
+              style: pe({ height: `${He(ti)(o.value)}px` })
+            }, [
+              be(Ic, {
+                rows: f.model.rows
+              }, null, 8, ["rows"]),
+              M("div", {
+                class: "sd-plot",
+                style: pe({ left: `${He(St)}px` })
+              }, [
+                (F(!0), B(Z, null, Qe(f.model.columns, (p, m) => (F(), et(mc, {
+                  key: p.instanceId,
+                  column: p,
+                  centre: He(Us)(m, i.value),
+                  rows: o.value
+                }, null, 8, ["column", "centre", "rows"]))), 128)),
+                (F(!0), B(Z, null, Qe(f.model.rows, (p, m) => (F(), et(yc, {
+                  key: p.id,
+                  row: p,
+                  index: m,
+                  count: i.value
+                }, null, 8, ["row", "index", "count"]))), 128))
+              ], 4)
             ], 4)
-          ], 4),
+          ]),
           M("div", {
             class: "sd-titles sd-titles-bottom",
             style: pe({ marginLeft: `${He(St)}px` })
@@ -4622,45 +4624,45 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
       ])
     ]));
   }
-}), Mc = {
+}), Pc = {
   key: 0,
   class: "adwdbg",
   "aria-label": "Live ADW sequence debugger"
-}, Pc = { class: "adwdbg-head" }, Oc = ["title"], Dc = {
+}, Oc = { class: "adwdbg-head" }, Dc = ["title"], Fc = {
   "data-field": "adw",
   class: "adwdbg-note"
-}, Fc = {
+}, Nc = {
   "data-field": "run",
   class: "adwdbg-note"
-}, Nc = ["data-run-status"], kc = ["data-mode"], Lc = {
+}, kc = ["data-run-status"], Lc = ["data-mode"], Hc = {
   class: "adwdbg-legend",
   "aria-label": "Status colours"
-}, Hc = ["data-status"], jc = {
+}, jc = ["data-status"], Bc = {
   key: 0,
   class: "adwdbg-warn",
   "data-warning": "connection",
   role: "status"
-}, Bc = {
+}, Wc = {
   key: 1,
   class: "adwdbg-warn",
   "data-warning": "feed",
   role: "status"
-}, Wc = {
+}, Uc = {
   key: 2,
   class: "adwdbg-warn",
   "data-warning": "render",
   role: "alert"
-}, Uc = {
+}, Vc = {
   key: 4,
   class: "adwdbg-idle",
   "data-field": "idle"
-}, Vc = { class: "adwdbg-bar" }, Kc = ["disabled"], Gc = ["disabled", "title"], qc = {
+}, Kc = { class: "adwdbg-bar" }, Gc = ["disabled"], qc = ["disabled", "title"], Jc = {
   key: 0,
   class: "adwdbg-note"
-}, Jc = {
+}, zc = {
   class: "adwdbg-note",
   "data-field": "timing"
-}, zc = /* @__PURE__ */ Ge({
+}, Yc = /* @__PURE__ */ Ge({
   __name: "DebuggerPanel",
   props: {
     controller: {}
@@ -4677,46 +4679,46 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
       ["fail", "Fail"],
       ["pass", "Pass"]
     ];
-    return (i, o) => s.value ? (F(), B("section", Mc, [
-      M("header", Pc, [
+    return (i, o) => s.value ? (F(), B("section", Pc, [
+      M("header", Oc, [
         M("strong", {
           class: "adwdbg-title",
           "data-field": "headline",
           title: s.value.adwName || void 0,
           "aria-live": "polite"
-        }, j(s.value.headline), 9, Oc),
+        }, j(s.value.headline), 9, Dc),
         s.value.runId ? (F(), B(Z, { key: 0 }, [
-          M("span", Dc, j(s.value.adwName), 1),
-          M("span", Fc, "run " + j(s.value.runId), 1),
+          M("span", Fc, j(s.value.adwName), 1),
+          M("span", Nc, "run " + j(s.value.runId), 1),
           M("span", {
             class: "adwdbg-chip",
             "data-run-status": s.value.runStatus,
             "data-field": "status"
-          }, j(s.value.runStatus), 9, Nc)
+          }, j(s.value.runStatus), 9, kc)
         ], 64)) : Ce("", !0),
         M("span", {
           class: "adwdbg-chip",
           "data-mode": s.value.mode,
           "data-field": "mode"
-        }, j(s.value.modeLabel), 9, kc),
-        M("span", Lc, [
+        }, j(s.value.modeLabel), 9, Lc),
+        M("span", Hc, [
           (F(), B(Z, null, Qe(r, ([l, a]) => M("span", {
             key: l,
             class: "adwdbg-key",
             "data-status": l
-          }, j(a), 9, Hc)), 64)),
+          }, j(a), 9, jc)), 64)),
           o[5] || (o[5] = M("span", { class: "adwdbg-key adwdbg-key-selected" }, "Selected", -1))
         ])
       ]),
-      s.value.connection.status === "disconnected" ? (F(), B("p", jc, " Event feed disconnected (attempt " + j(s.value.connection.attempts) + "): " + j(s.value.connection.reason) + ". The diagram shows the last events received; this is a connection problem, not an ADW failure. ", 1)) : s.value.connection.status === "degraded" ? (F(), B("p", Bc, " The dashboard cannot read the ADW trace: " + j(s.value.connection.reason), 1)) : Ce("", !0),
-      s.value.renderError ? (F(), B("p", Wc, " Diagram could not be redrawn (" + j(s.value.renderError) + "). Showing the last good diagram; the terminal is unaffected. ", 1)) : Ce("", !0),
-      s.value.diagram.columns.length ? (F(), et(Rc, {
+      s.value.connection.status === "disconnected" ? (F(), B("p", Bc, " Event feed disconnected (attempt " + j(s.value.connection.attempts) + "): " + j(s.value.connection.reason) + ". The diagram shows the last events received; this is a connection problem, not an ADW failure. ", 1)) : s.value.connection.status === "degraded" ? (F(), B("p", Wc, " The dashboard cannot read the ADW trace: " + j(s.value.connection.reason), 1)) : Ce("", !0),
+      s.value.renderError ? (F(), B("p", Uc, " Diagram could not be redrawn (" + j(s.value.renderError) + "). Showing the last good diagram; the terminal is unaffected. ", 1)) : Ce("", !0),
+      s.value.diagram.columns.length ? (F(), et(Mc, {
         key: 3,
         model: s.value.diagram,
         onPhaseClick: o[0] || (o[0] = (l) => t.controller.selectPhase(l)),
         onRunnerClick: o[1] || (o[1] = (l) => t.controller.allEvents())
-      }, null, 8, ["model"])) : (F(), B("p", Uc, j(s.value.runId ? "This run has not started a step yet." : "No ADW run has been recorded yet."), 1)),
-      M("div", Vc, [
+      }, null, 8, ["model"])) : (F(), B("p", Vc, j(s.value.runId ? "This run has not started a step yet." : "No ADW run has been recorded yet."), 1)),
+      M("div", Kc, [
         M("button", {
           type: "button",
           class: "am-btn",
@@ -4729,7 +4731,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
           "data-action": "all-events",
           disabled: !s.value.phaseSelected,
           onClick: o[3] || (o[3] = (l) => t.controller.allEvents())
-        }, "All events", 8, Kc),
+        }, "All events", 8, Gc),
         M("button", {
           type: "button",
           class: "am-btn",
@@ -4737,9 +4739,9 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
           disabled: !!s.value.clearDisabledReason,
           title: s.value.clearDisabledReason,
           onClick: o[4] || (o[4] = (l) => t.controller.clearSelectedRun())
-        }, j(s.value.clearLabel), 9, Gc),
-        s.value.clearDisabledReason ? (F(), B("span", qc, j(s.value.clearDisabledReason), 1)) : Ce("", !0),
-        M("span", Jc, [
+        }, j(s.value.clearLabel), 9, qc),
+        s.value.clearDisabledReason ? (F(), B("span", Jc, j(s.value.clearDisabledReason), 1)) : Ce("", !0),
+        M("span", zc, [
           tt(" stall timeout " + j(s.value.stallTimeoutSeconds) + "s", 1),
           s.value.lastDelayMs !== null ? (F(), B(Z, { key: 0 }, [
             tt(" · last event shown " + j(s.value.lastDelayMs) + " ms after it was recorded", 1)
@@ -4754,7 +4756,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ Ge({
     ])) : Ce("", !0);
   }
 });
-function Yc(e = document) {
+function Xc(e = document) {
   const t = e.getElementById("terminal"), s = e.getElementById("terminal-stream"), n = (t == null ? void 0 : t.querySelector(".terminal-toolbar")) ?? s;
   if (!t || !s || !n || e.getElementById("adw-debugger-root"))
     return null;
@@ -4776,7 +4778,7 @@ function Yc(e = document) {
     legacy: new ec(s),
     clock: new Zl(),
     timer: i
-  }), l = vl(zc, { controller: o });
+  }), l = vl(Yc, { controller: o });
   l.mount(r), o.start();
   const a = () => o.wake(), f = new MutationObserver(a);
   return f.observe(t, { attributes: !0, attributeFilter: ["class"] }), e.addEventListener("visibilitychange", a), {
@@ -4786,7 +4788,7 @@ function Yc(e = document) {
     }
   };
 }
-window.adwDebugger = Yc();
+window.adwDebugger = Xc();
 export {
-  Yc as mountAdwDebugger
+  Xc as mountAdwDebugger
 };

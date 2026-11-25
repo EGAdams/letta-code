@@ -46,16 +46,20 @@ function select(column: DiagramColumn): void {
     </div>
     <div class="sd-scroll">
       <div class="sd-canvas" :style="{ zoom, minWidth }">
-        <div class="sd-titles sd-titles-top" :style="{ marginLeft: `${AXIS_WIDTH}px` }">
-          <ParticipantBox v-for="column in model.columns" :key="column.instanceId" :column="column" edge="top"
-                          @select="select" />
-        </div>
-        <div class="sd-body" :style="{ height: `${bodyHeight(rowCount)}px` }">
-          <TimeAxis :rows="model.rows" />
-          <div class="sd-plot" :style="{ left: `${AXIS_WIDTH}px` }">
-            <Lifeline v-for="(column, index) in model.columns" :key="column.instanceId" :column="column"
-                      :centre="columnCentre(index, count)" :rows="rowCount" />
-            <MessageArrow v-for="(row, index) in model.rows" :key="row.id" :row="row" :index="index" :count="count" />
+        <!-- The top row is sticky inside .sd-frozen, which ends where the bottom row starts:
+             it stays pinned while scrolling and lets go as the bottom row comes into view. -->
+        <div class="sd-frozen">
+          <div class="sd-titles sd-titles-top" :style="{ paddingLeft: `${AXIS_WIDTH}px` }">
+            <ParticipantBox v-for="column in model.columns" :key="column.instanceId" :column="column" edge="top"
+                            @select="select" />
+          </div>
+          <div class="sd-body" :style="{ height: `${bodyHeight(rowCount)}px` }">
+            <TimeAxis :rows="model.rows" />
+            <div class="sd-plot" :style="{ left: `${AXIS_WIDTH}px` }">
+              <Lifeline v-for="(column, index) in model.columns" :key="column.instanceId" :column="column"
+                        :centre="columnCentre(index, count)" :rows="rowCount" />
+              <MessageArrow v-for="(row, index) in model.rows" :key="row.id" :row="row" :index="index" :count="count" />
+            </div>
           </div>
         </div>
         <div class="sd-titles sd-titles-bottom" :style="{ marginLeft: `${AXIS_WIDTH}px` }">
@@ -79,6 +83,8 @@ function select(column: DiagramColumn): void {
 
 /* Participant boxes: rounded, raised, the status colour under a soft sheen. */
 .sd-titles { display: flex; }
+.sd-titles-top { position: sticky; top: 0; z-index: 3; padding-top: 10px; padding-bottom: 6px; margin-top: -10px;
+  background: #fff; box-shadow: 0 3px 4px -3px rgba(0, 0, 0, .25); }
 .sd-box { flex: 1 1 0; min-width: 0; margin: 0 10px; padding: 6px 8px; border: 1px solid rgba(0, 0, 0, .28);
   border-radius: 7px; display: flex; flex-direction: column; gap: 1px; align-items: center; cursor: pointer;
   font: inherit; text-align: center; overflow-wrap: anywhere; box-shadow: 2px 3px 5px rgba(0, 0, 0, .22);

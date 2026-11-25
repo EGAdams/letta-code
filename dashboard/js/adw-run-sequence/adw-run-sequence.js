@@ -2211,8 +2211,8 @@ function To(e, t) {
       else if (y & 2 && S.class !== A.class && i(v, "class", null, A.class, g), y & 4 && i(v, "style", S.style, A.style, g), y & 8) {
         const O = u.dynamicProps;
         for (let B = 0; B < O.length; B++) {
-          const k = O[B], ue = S[k], ae = A[k];
-          (ae !== ue || k === "value") && i(v, k, ue, ae, g, h);
+          const H = O[B], ue = S[H], ae = A[H];
+          (ae !== ue || H === "value") && i(v, H, ue, ae, g, h);
         }
       }
       y & 1 && c.children !== u.children && d(v, u.children);
@@ -2373,7 +2373,7 @@ function To(e, t) {
             return;
           }
         }
-        let k = S, ue;
+        let H = S, ue;
         Xe(c, !1), S ? (S.el = B.el, K(c, S, x)) : S = B, A && bs(A), (ue = S.props && S.props.onVnodeBeforeUpdate) && Ie(ue, O, S, B), Xe(c, !0);
         const ae = In(c), ve = c.subTree;
         c.subTree = ae, P(
@@ -2386,14 +2386,14 @@ function To(e, t) {
           c,
           g,
           _
-        ), S.el = ae.el, k === null && Ho(c, ae.el), T && de(T, g), (ue = S.props && S.props.onVnodeUpdated) && de(
+        ), S.el = ae.el, H === null && Ho(c, ae.el), T && de(T, g), (ue = S.props && S.props.onVnodeUpdated) && de(
           () => Ie(ue, O, S, B),
           g
         );
       } else {
         let S;
-        const { el: A, props: T } = u, { bm: O, m: B, parent: k, root: ue, type: ae } = c, ve = $t(u);
-        Xe(c, !1), O && bs(O), !ve && (S = T && T.onVnodeBeforeMount) && Ie(S, k, u), Xe(c, !0);
+        const { el: A, props: T } = u, { bm: O, m: B, parent: H, root: ue, type: ae } = c, ve = $t(u);
+        Xe(c, !1), O && bs(O), !ve && (S = T && T.onVnodeBeforeMount) && Ie(S, H, u), Xe(c, !0);
         {
           ue.ce && ue.ce._injectChildStyle(ae);
           const xe = c.subTree = In(c);
@@ -2410,11 +2410,11 @@ function To(e, t) {
         if (B && de(B, g), !ve && (S = T && T.onVnodeMounted)) {
           const xe = u;
           de(
-            () => Ie(S, k, xe),
+            () => Ie(S, H, xe),
             g
           );
         }
-        (u.shapeFlag & 256 || k && $t(k.vnode) && k.vnode.shapeFlag & 256) && c.a && de(c.a, g), c.isMounted = !0, u = h = b = null;
+        (u.shapeFlag & 256 || H && $t(H.vnode) && H.vnode.shapeFlag & 256) && c.a && de(c.a, g), c.isMounted = !0, u = h = b = null;
       }
     };
     c.scope.on();
@@ -2578,7 +2578,7 @@ function To(e, t) {
         const fe = u[w] = y ? ke(u[w]) : Ce(u[w]);
         fe.key != null && B.set(fe.key, w);
       }
-      let k, ue = 0;
+      let H, ue = 0;
       const ae = A - O + 1;
       let ve = !1, xe = 0;
       const bt = new Array(ae);
@@ -2593,9 +2593,9 @@ function To(e, t) {
         if (fe.key != null)
           Se = B.get(fe.key);
         else
-          for (k = O; k <= A; k++)
-            if (bt[k - O] === 0 && yt(fe, u[k])) {
-              Se = k;
+          for (H = O; H <= A; H++)
+            if (bt[H - O] === 0 && yt(fe, u[H])) {
+              Se = H;
               break;
             }
         Se === void 0 ? ye(fe, g, _, !0) : (bt[Se - O] = w + 1, Se >= xe ? xe = Se : ve = !0, P(
@@ -2611,7 +2611,7 @@ function To(e, t) {
         ), ue++);
       }
       const dn = ve ? Mo(bt) : at;
-      for (k = dn.length - 1, w = ae - 1; w >= 0; w--) {
+      for (H = dn.length - 1, w = ae - 1; w >= 0; w--) {
         const fe = O + w, Se = u[fe], hn = fe + 1 < C ? u[fe + 1].el : b;
         bt[w] === 0 ? P(
           null,
@@ -2623,7 +2623,7 @@ function To(e, t) {
           x,
           v,
           y
-        ) : ve && (k < 0 || w !== dn[k] ? ze(Se, h, hn, 2) : k--);
+        ) : ve && (H < 0 || w !== dn[H] ? ze(Se, h, hn, 2) : H--);
       }
     }
   }, ze = (c, u, h, b, g = null) => {
@@ -2681,8 +2681,8 @@ function To(e, t) {
       return;
     }
     const O = C & 1 && A, B = !$t(c);
-    let k;
-    if (B && (k = x && x.onVnodeBeforeUnmount) && Ie(k, u, c), C & 6)
+    let H;
+    if (B && (H = x && x.onVnodeBeforeUnmount) && Ie(H, u, c), C & 6)
       ri(c.component, h, b);
     else {
       if (C & 128) {
@@ -2709,8 +2709,8 @@ function To(e, t) {
         !0
       ) : (_ === ee && S & 384 || !g && C & 16) && mt(y, u, h), b && un(c);
     }
-    (B && (k = x && x.onVnodeUnmounted) || O) && de(() => {
-      k && Ie(k, u, c), O && Ye(c, null, u, "unmounted");
+    (B && (H = x && x.onVnodeUnmounted) || O) && de(() => {
+      H && Ie(H, u, c), O && Ye(c, null, u, "unmounted");
     }, h);
   }, un = (c) => {
     const { type: u, el: h, anchor: b, transition: g } = c;
@@ -3052,7 +3052,7 @@ function Gr(e) {
 }
 function V(e, t, s, n, r, i) {
   return Gr(
-    H(
+    k(
       e,
       t,
       s,
@@ -3086,7 +3086,7 @@ const zr = ({ key: e }) => e ?? null, zt = ({
   ref_key: t,
   ref_for: s
 }) => (typeof e == "number" && (e = "" + e), e != null ? X(e) || ne(e) || M(e) ? { i: $e, r: e, k: t, f: !!s } : e : null);
-function H(e, t = null, s = null, n = 0, r = null, i = e === ee ? 0 : 1, o = !1, l = !1) {
+function k(e, t = null, s = null, n = 0, r = null, i = e === ee ? 0 : 1, o = !1, l = !1) {
   const a = {
     __v_isVNode: !0,
     __v_skip: !0,
@@ -3143,7 +3143,7 @@ function Wo(e, t = null, s = null, n = 0, r = null, i = !1) {
     l && !X(l) && (t.class = it(l)), q(a) && (tn(a) && !E(a) && (a = re({}, a)), t.style = pe(a));
   }
   const o = X(e) ? 1 : qr(e) ? 128 : Qi(e) ? 64 : q(e) ? 4 : M(e) ? 2 : 0;
-  return H(
+  return k(
     e,
     t,
     s,
@@ -4343,11 +4343,11 @@ const nc = { class: "adwdbg-log" }, rc = { class: "adwdbg-log-head" }, ic = { cl
     return Jt(() => t.lines.length, async () => {
       n.value && (await br(), s.value && (s.value.scrollTop = s.value.scrollHeight));
     }, { immediate: !0 }), (i, o) => (F(), V("div", nc, [
-      H("div", rc, [
-        H("span", ic, z(i.label), 1),
-        H("span", null, z(i.lines.length) + " line" + z(i.lines.length === 1 ? "" : "s") + z(n.value ? "" : " · paused (scroll to bottom to follow)"), 1)
+      k("div", rc, [
+        k("span", ic, z(i.label), 1),
+        k("span", null, z(i.lines.length) + " line" + z(i.lines.length === 1 ? "" : "s") + z(n.value ? "" : " · paused (scroll to bottom to follow)"), 1)
       ]),
-      H("div", {
+      k("div", {
         ref_key: "host",
         ref: s,
         class: it(["adwdbg-log-lines", { "adwdbg-log-tall": i.tall }]),
@@ -4413,7 +4413,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       "data-lifeline": t.column.instanceId,
       style: pe({ left: `${t.centre}%` })
     }, [
-      s[0] || (s[0] = H("span", { class: "sd-lifeline" }, null, -1)),
+      s[0] || (s[0] = k("span", { class: "sd-lifeline" }, null, -1)),
       t.column.activeFrom !== null && t.column.activeFrom !== void 0 ? (F(), Qe(pc, {
         key: 0,
         from: t.column.activeFrom,
@@ -4446,14 +4446,14 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       "data-row": r.index,
       style: pe(n.value)
     }, [
-      H("div", {
+      k("div", {
         class: "sd-label",
         title: r.row.text
       }, [
-        H("span", wc, z(r.row.text), 1)
+        k("span", wc, z(r.row.text), 1)
       ], 8, bc),
-      i[0] || (i[0] = H("div", { class: "sd-line" }, [
-        H("span", { class: "sd-head" })
+      i[0] || (i[0] = k("div", { class: "sd-line" }, [
+        k("span", { class: "sd-head" })
       ], -1))
     ], 14, _c));
   }
@@ -4481,13 +4481,13 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       "aria-pressed": i.column.selected,
       onClick: o[0] || (o[0] = (l) => n("select", i.column))
     }, [
-      H("span", xc, [
+      k("span", xc, [
         xt(z(i.column.name), 1),
         i.column.attempt && i.column.attempt > 1 ? (F(), V(ee, { key: 0 }, [
           xt(" · attempt " + z(i.column.attempt), 1)
         ], 64)) : Oe("", !0)
       ]),
-      H("span", Sc, [
+      k("span", Sc, [
         xt(z(i.column.statusLabel), 1),
         i.column.detail ? (F(), V(ee, { key: 0 }, [
           xt(" · " + z(i.column.detail), 1)
@@ -4513,7 +4513,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       }, z(n.elapsed), 5))), 128))
     ], 4));
   }
-}), Ac = { class: "sd" }, Cc = { class: "sd-tools" }, $c = { class: "sd-zoom-value" }, Tc = { class: "sd-hint" }, Ec = { class: "sd-scroll" }, Mc = /* @__PURE__ */ qe({
+}), Ac = { class: "sd" }, Cc = { class: "sd-tools" }, $c = { class: "sd-zoom-value" }, Tc = { class: "sd-hint" }, Ec = { class: "sd-scroll" }, Mc = { class: "sd-frozen" }, Pc = /* @__PURE__ */ qe({
   __name: "SequenceDiagram",
   props: {
     model: {},
@@ -4526,69 +4526,71 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       f.kind === "runner" ? n("runner-click") : n("phase-click", f.instanceId);
     }
     return (f, d) => (F(), V("div", Ac, [
-      H("div", Cc, [
-        H("button", {
+      k("div", Cc, [
+        k("button", {
           type: "button",
           class: "sd-zoom",
           "aria-label": "Zoom out",
           onClick: d[0] || (d[0] = (p) => r.value = Math.max(0.4, r.value - 0.1))
         }, "-"),
-        H("span", $c, z(Math.round(r.value * 100)) + "%", 1),
-        H("button", {
+        k("span", $c, z(Math.round(r.value * 100)) + "%", 1),
+        k("button", {
           type: "button",
           class: "sd-zoom",
           "aria-label": "Zoom in",
           onClick: d[1] || (d[1] = (p) => r.value = Math.min(2, r.value + 0.1))
         }, "+"),
-        H("button", {
+        k("button", {
           type: "button",
           class: "sd-zoom",
           onClick: d[2] || (d[2] = (p) => r.value = 1)
         }, "Reset"),
-        H("span", Tc, z(f.hint), 1)
+        k("span", Tc, z(f.hint), 1)
       ]),
-      H("div", Ec, [
-        H("div", {
+      k("div", Ec, [
+        k("div", {
           class: "sd-canvas",
           style: pe({ zoom: r.value, minWidth: l.value })
         }, [
-          H("div", {
-            class: "sd-titles sd-titles-top",
-            style: pe({ marginLeft: `${He(St)}px` })
-          }, [
-            (F(!0), V(ee, null, ct(f.model.columns, (p) => (F(), Qe(Un, {
-              key: p.instanceId,
-              column: p,
-              edge: "top",
-              onSelect: a
-            }, null, 8, ["column"]))), 128))
-          ], 4),
-          H("div", {
-            class: "sd-body",
-            style: pe({ height: `${He(si)(o.value)}px` })
-          }, [
-            be(Ic, {
-              rows: f.model.rows
-            }, null, 8, ["rows"]),
-            H("div", {
-              class: "sd-plot",
-              style: pe({ left: `${He(St)}px` })
+          k("div", Mc, [
+            k("div", {
+              class: "sd-titles sd-titles-top",
+              style: pe({ paddingLeft: `${He(St)}px` })
             }, [
-              (F(!0), V(ee, null, ct(f.model.columns, (p, m) => (F(), Qe(mc, {
+              (F(!0), V(ee, null, ct(f.model.columns, (p) => (F(), Qe(Un, {
                 key: p.instanceId,
                 column: p,
-                centre: He(Us)(m, i.value),
-                rows: o.value
-              }, null, 8, ["column", "centre", "rows"]))), 128)),
-              (F(!0), V(ee, null, ct(f.model.rows, (p, m) => (F(), Qe(yc, {
-                key: p.id,
-                row: p,
-                index: m,
-                count: i.value
-              }, null, 8, ["row", "index", "count"]))), 128))
+                edge: "top",
+                onSelect: a
+              }, null, 8, ["column"]))), 128))
+            ], 4),
+            k("div", {
+              class: "sd-body",
+              style: pe({ height: `${He(si)(o.value)}px` })
+            }, [
+              be(Ic, {
+                rows: f.model.rows
+              }, null, 8, ["rows"]),
+              k("div", {
+                class: "sd-plot",
+                style: pe({ left: `${He(St)}px` })
+              }, [
+                (F(!0), V(ee, null, ct(f.model.columns, (p, m) => (F(), Qe(mc, {
+                  key: p.instanceId,
+                  column: p,
+                  centre: He(Us)(m, i.value),
+                  rows: o.value
+                }, null, 8, ["column", "centre", "rows"]))), 128)),
+                (F(!0), V(ee, null, ct(f.model.rows, (p, m) => (F(), Qe(yc, {
+                  key: p.id,
+                  row: p,
+                  index: m,
+                  count: i.value
+                }, null, 8, ["row", "index", "count"]))), 128))
+              ], 4)
             ], 4)
-          ], 4),
-          H("div", {
+          ]),
+          k("div", {
             class: "sd-titles sd-titles-bottom",
             style: pe({ marginLeft: `${He(St)}px` })
           }, [
@@ -4603,30 +4605,30 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
       ])
     ]));
   }
-}), Pc = {
+}), Rc = {
   key: 0,
   class: "adwseq",
   "aria-label": "ADW run sequence diagram"
-}, Rc = { class: "adwseq-head" }, Oc = { "data-field": "headline" }, Dc = ["data-run-status"], Fc = {
+}, Oc = { class: "adwseq-head" }, Dc = { "data-field": "headline" }, Fc = ["data-run-status"], Nc = {
   key: 0,
   class: "adwdbg-warn",
   "data-warning": "connection",
   role: "status"
-}, Nc = {
+}, Lc = {
   key: 1,
   class: "adwdbg-warn",
   "data-warning": "feed",
   role: "status"
-}, Lc = {
+}, kc = {
   key: 2,
   class: "adwdbg-warn",
   "data-warning": "render",
   role: "alert"
-}, kc = { class: "adwseq-stage" }, Hc = {
+}, Hc = { class: "adwseq-stage" }, jc = {
   key: 1,
   class: "adwdbg-idle",
   "data-field": "idle"
-}, jc = ["aria-label"], Vn = "@all", Bc = /* @__PURE__ */ qe({
+}, Bc = ["aria-label"], Vn = "@all", Wc = /* @__PURE__ */ qe({
   __name: "RunSequencePanel",
   props: {
     controller: {}
@@ -4646,26 +4648,26 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
     function o() {
       n.value && i(n.value);
     }
-    return (l, a) => s.value ? (F(), V("section", Pc, [
-      H("header", Rc, [
-        H("strong", Oc, z(s.value.headline), 1),
+    return (l, a) => s.value ? (F(), V("section", Rc, [
+      k("header", Oc, [
+        k("strong", Dc, z(s.value.headline), 1),
         s.value.runStatus ? (F(), V("span", {
           key: 0,
           class: "adwdbg-chip",
           "data-run-status": s.value.runStatus,
           "data-field": "status"
-        }, z(s.value.runStatus), 9, Dc)) : Oe("", !0)
+        }, z(s.value.runStatus), 9, Fc)) : Oe("", !0)
       ]),
-      s.value.connection.status === "disconnected" ? (F(), V("p", Fc, " Event feed disconnected (attempt " + z(s.value.connection.attempts) + "): " + z(s.value.connection.reason) + ". Showing the last events received. ", 1)) : s.value.connection.status === "degraded" ? (F(), V("p", Nc, " The ADW trace cannot be read: " + z(s.value.connection.reason), 1)) : Oe("", !0),
-      s.value.renderError ? (F(), V("p", Lc, " Diagram could not be redrawn (" + z(s.value.renderError) + "). Showing the last good diagram. ", 1)) : Oe("", !0),
-      H("div", kc, [
-        s.value.diagram.columns.length ? (F(), Qe(Mc, {
+      s.value.connection.status === "disconnected" ? (F(), V("p", Nc, " Event feed disconnected (attempt " + z(s.value.connection.attempts) + "): " + z(s.value.connection.reason) + ". Showing the last events received. ", 1)) : s.value.connection.status === "degraded" ? (F(), V("p", Lc, " The ADW trace cannot be read: " + z(s.value.connection.reason), 1)) : Oe("", !0),
+      s.value.renderError ? (F(), V("p", kc, " Diagram could not be redrawn (" + z(s.value.renderError) + "). Showing the last good diagram. ", 1)) : Oe("", !0),
+      k("div", Hc, [
+        s.value.diagram.columns.length ? (F(), Qe(Pc, {
           key: 0,
           model: s.value.diagram,
           hint: "Click a phase to open its console; click it again to close.",
           onPhaseClick: a[0] || (a[0] = (f) => i(f)),
           onRunnerClick: a[1] || (a[1] = (f) => i(Vn))
-        }, null, 8, ["model"])) : (F(), V("p", Hc, z(s.value.connection.status === "connecting" ? "Loading the run…" : "This run has not started a step yet."), 1)),
+        }, null, 8, ["model"])) : (F(), V("p", jc, z(s.value.connection.status === "connecting" ? "Loading the run…" : "This run has not started a step yet."), 1)),
         n.value ? (F(), V("div", {
           key: 2,
           class: "adwseq-popup",
@@ -4673,7 +4675,7 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
           role: "dialog",
           "aria-label": s.value.filterLabel
         }, [
-          H("button", {
+          k("button", {
             type: "button",
             class: "adwseq-close",
             "aria-label": "Close console",
@@ -4684,12 +4686,12 @@ const hc = ["data-status"], pc = /* @__PURE__ */ qe({
             label: s.value.filterLabel,
             tall: !1
           }, null, 8, ["lines", "label"])
-        ], 8, jc)) : Oe("", !0)
+        ], 8, Bc)) : Oe("", !0)
       ])
     ])) : Oe("", !0);
   }
 });
-function Vc(e, t) {
+function Kc(e, t) {
   const s = new Xl();
   let n = !0;
   const r = new Gl({
@@ -4710,7 +4712,7 @@ function Vc(e, t) {
     timer: s
   }), i = r.subscribe((l) => {
     n = l.runStatus === "running" || l.runStatus === null;
-  }), o = xl(Bc, { controller: r });
+  }), o = xl(Wc, { controller: r });
   return o.mount(e), r.start(), {
     controller: r,
     unmount() {
@@ -4719,5 +4721,5 @@ function Vc(e, t) {
   };
 }
 export {
-  Vc as mountRunSequence
+  Kc as mountRunSequence
 };
