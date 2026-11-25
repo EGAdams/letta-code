@@ -230,9 +230,10 @@ new AdwPromptDialog({ http }).start();
 /* ─────────────────────────  Go  ───────────────────────── */
 
 startReceptionist({ http, speech });
-applyDeepLink({ nav, AM, RF });
-// Every browser page load starts at Toyota, regardless of stale route state.
+// Every browser page load starts at Toyota, regardless of stale route state;
+// an explicit ?view= / ?agent= in the URL then overrides that.
 viewNav.resetForPageLoad();
+applyDeepLink({ doc, nav, AM, RF });
 void createStartupChecks({
   doc,
   http,
