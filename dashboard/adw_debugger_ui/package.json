@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Live ADW Sequence Debugger for the dashboard's Terminal tab. Builds to ../js/adw-debugger/.",
+  "description": "Live ADW Sequence Debugger for the dashboard's Terminal tab (../js/adw-debugger/) and the one-run embed for the object debugger (../js/adw-run-sequence/).",
   "scripts": {
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && vite build --config vite.embed.config.ts",
     "e2e": "node e2e/run.mjs"
   },
   "dependencies": {

@@ -76,3 +76,22 @@ export class NewestRunPolicy implements IRunSelectionPolicy {
     return selected.status === "running" ? "live" : "completed";
   }
 }
+
+// Strategy: one run, chosen by the page that embeds the diagram. It never moves.
+export class FixedRunPolicy implements IRunSelectionPolicy {
+  constructor(private readonly runId: string) {}
+
+  select(): RunSelection {
+    return { runId: this.runId, pinReleased: true };
+  }
+
+  followLive(): RunSelection {
+    return this.select();
+  }
+
+  mode(selection: RunSelection, runs: RunSummary[]): RunMode {
+    const selected = runs.find((run) => run.runId === selection.runId);
+    if (!selected) return "idle";
+    return selected.status === "running" ? "live" : "completed";
+  }
+}

@@ -35,6 +35,10 @@ def _names(adw_names: list[str], exclude: list[str], column: str) -> tuple[str, 
     return (' AND '.join(clauses) or '1=1'), params
 
 
+_RUN_COLUMNS = ('s.adw_id, s.adw_name, s.status, s.started_at, s.ended_at,'
+                ' p.pid, p.command, p.ended_at')
+
+
 class SqliteAdwEventRepository:
     def __init__(self, db_path: str):
         self._db_path = db_path
@@ -53,16 +57,25 @@ class SqliteAdwEventRepository:
             return []
         outer, outer_params = _names(adw_names, list(exclude), 's.adw_name')
         inner, inner_params = _names(adw_names, list(exclude), 'adw_name')
-        sql = (f'SELECT s.adw_id, s.adw_name, s.status, s.started_at, s.ended_at,'
-               f' p.pid, p.command, p.ended_at FROM sessions s'
+        sql = (f'SELECT {_RUN_COLUMNS} FROM sessions s'
                f" LEFT JOIN processes p ON p.adw_id = s.adw_id AND p.kind = 'adw'"
                f' WHERE {outer}'
                f" AND (s.status = 'running' OR s.adw_id IN ("
                f'   SELECT adw_id FROM sessions WHERE {inner}'
                f'   ORDER BY started_at DESC, adw_id DESC LIMIT ?))'
                f' ORDER BY s.started_at, s.adw_id, p.id')
+        return self._runs(sql, [*outer_params, *inner_params, limit])
+
+    def run(self, run_id: str) -> RunRow | None:
+        sql = (f'SELECT {_RUN_COLUMNS} FROM sessions s'
+               f" LEFT JOIN processes p ON p.adw_id = s.adw_id AND p.kind = 'adw'"
+               f' WHERE s.adw_id = ? ORDER BY p.id')
+        runs = self._runs(sql, [run_id])
+        return runs[0] if runs else None
+
+    def _runs(self, sql: str, params: list) -> list[RunRow]:
         with closing(self._connect()) as conn:
-            rows = conn.execute(sql, [*outer_params, *inner_params, limit]).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         runs: dict[str, RunRow] = {}
         for row in rows:          # a joined session has several process rows; the last one wins
             runs[row[0]] = RunRow(run_id=row[0], adw_name=row[1] or '', status=row[2] or '',
@@ -70,12 +83,12 @@ class SqliteAdwEventRepository:
                                   process_command=row[6] or '', process_ended_at=row[7])
         return list(runs.values())
 
-    def events_for_runs(self, run_ids: list[str]) -> list[RawEvent]:
+    def events_for_runs(self, run_ids: list[str], after: int = 0) -> list[RawEvent]:
         if not run_ids:
             return []
         sql = (f'SELECT {_EVENT_COLUMNS} FROM events e JOIN sessions s ON s.adw_id = e.adw_id'
-               f' WHERE e.adw_id IN ({_marks(run_ids)}) ORDER BY e.rowid')
-        return self._events(sql, list(run_ids))
+               f' WHERE e.adw_id IN ({_marks(run_ids)}) AND e.rowid > ? ORDER BY e.rowid')
+        return self._events(sql, [*run_ids, after])
 
     def events_after(self, cursor: int, adw_names: list[str], limit: int,
                      exclude: list[str] = ()) -> list[RawEvent]:

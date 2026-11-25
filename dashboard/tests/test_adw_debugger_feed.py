@@ -167,3 +167,24 @@ def test_an_excluded_adw_is_left_out_of_runs_and_live_events(trace):
     trace.event('worker', 'log', {'message': 'muted'})
     trace.event('scala', 'log', {'message': 'shown'})
     assert [e.run_id for e in feed(trace, **quiet).read(first.cursor).events] == ['scala']
+
+
+def test_one_run_read_returns_only_that_run_and_all_its_events(trace):
+    trace.run('r1')
+    trace.run('r2', started='2026-11-13T11:00:00+00:00')
+    trace.event('r1', 'phase_start', {}, 'r1_01_a', 'a')
+    trace.event('r2', 'phase_start', {}, 'r2_01_a', 'a')
+    trace.event('r1', 'phase_end', {'status': 'pass'}, 'r1_01_a', 'a')
+    first = feed(trace).read_run('r1', None)
+    assert first.ok and first.bootstrap and [run.run_id for run in first.runs] == ['r1']
+    assert [e.cursor for e in first.events] == [1, 3] and first.cursor == 3
+    trace.event('r1', 'log', {'message': 'later'})
+    later = feed(trace).read_run('r1', first.cursor)
+    assert [e.cursor for e in later.events] == [4] and not later.bootstrap
+
+
+def test_one_run_read_of_an_unknown_run_fails_closed(trace):
+    trace.run('r1')
+    result = feed(trace).read_run('nope', None)
+    assert result.ok is False and 'nope' in result.error and result.events == []
+    assert feed(trace).read_run('', None).ok is False

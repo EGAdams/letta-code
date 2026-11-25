@@ -17,7 +17,8 @@
       "dashboard/vendor/**",
       "src/skills/custom/**",
       "dashboard/training/dist/**",
-      "dashboard/js/adw-debugger/**"
+      "dashboard/js/adw-debugger/**",
+      "dashboard/js/adw-run-sequence/**"
     ]
   },
   "overrides": [
@@ -49,7 +50,10 @@
       }
     },
     {
-      "includes": ["dashboard/js/adw-debugger/**"],
+      "includes": [
+        "dashboard/js/adw-debugger/**",
+        "dashboard/js/adw-run-sequence/**"
+      ],
       "linter": {
         "enabled": false
       },

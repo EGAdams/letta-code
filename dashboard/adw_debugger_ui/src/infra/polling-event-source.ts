@@ -87,7 +87,7 @@ export class PollingEventSource implements IAdwEventSource {
       const url =
         this.cursor === null
           ? this.options.url
-          : `${this.options.url}?after=${this.cursor}`;
+          : `${this.options.url}${this.options.url.includes("?") ? "&" : "?"}after=${this.cursor}`;
       const page = (await this.http.getJSON(url)) as FeedPage;
       if (!this.running) return;
       this.failures = 0;

@@ -1,4 +1,4 @@
-"""GET /api/adw-debugger/feed -- catch-up, then live delivery, on one cursor.
+"""GET /api/adw-debugger/feed (and /run, one run) -- catch-up, then live delivery, on one cursor.
 
 No `after`: the recent runs of the monitored ADWs with all their events, enough
 to rebuild the diagram. `after=<cursor>`: only events recorded since. Either
@@ -60,6 +60,32 @@ class AdwDebuggerFeed:
         response.events = [adapt(event, self._machine) for event in raw]
         return response
 
+    def read_run(self, run_id: str, after: int | None) -> FeedResponse:
+        """One run, every event of it (or those after `after`): the object debugger's view of an ADW."""
+        settings = self._settings.load()
+        response = FeedResponse(machine=self._machine, adw_names=settings.adw_names,
+                                stall_timeout_seconds=settings.stall_timeout_seconds,
+                                server_now=datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
+                                bootstrap=after is None, cursor=after or 0)
+        if not run_id:
+            response.ok, response.error = False, 'no run_id given'
+            return response
+        try:
+            repository: IAdwEventRepository = self._repository_for(settings.db_path)
+            head = repository.head_cursor()
+            run = repository.run(run_id)
+            raw = repository.events_for_runs([run_id], after or 0) if run else []
+        except Exception as error:               # noqa: BLE001 -- a broken trace db must not break the page
+            response.ok, response.error = False, f'{type(error).__name__}: {error}'
+            return response
+        if run is None:
+            response.ok, response.error = False, f'no ADW run {run_id} in the trace database'
+            return response
+        response.cursor = max(head, after or 0)
+        response.runs = [self._run(run)]
+        response.events = [adapt(event, self._machine) for event in raw]
+        return response
+
     def _run(self, run: RunRow) -> DebugRun:
         alive = None
         if run.pid is not None:
@@ -78,9 +104,18 @@ def _after(query: dict) -> int | None:
         return None
 
 
-def payload(query: dict) -> dict:
-    feed = AdwDebuggerFeed(settings=FileAndEnvSettings(),
+def _feed() -> AdwDebuggerFeed:
+    return AdwDebuggerFeed(settings=FileAndEnvSettings(),
                            repository_for=SqliteAdwEventRepository,
                            processes=ProcProcessProbe(),
                            machine=socket.gethostname())
-    return feed.read(_after(query)).model_dump()
+
+
+def payload(query: dict) -> dict:
+    return _feed().read(_after(query)).model_dump()
+
+
+def run_payload(query: dict) -> dict:
+    """GET /api/adw-debugger/run?run_id=<adw_id>[&after=N]"""
+    run_id = (query.get('run_id') or [''])[0].strip()
+    return _feed().read_run(run_id, _after(query)).model_dump()

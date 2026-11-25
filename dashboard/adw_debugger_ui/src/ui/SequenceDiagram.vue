@@ -19,7 +19,9 @@ import ParticipantBox from './sequence/ParticipantBox.vue'
 import TimeAxis from './sequence/TimeAxis.vue'
 import { AXIS_WIDTH, bodyHeight, COLUMN_MIN_WIDTH, columnCentre } from './sequence/geometry'
 
-const props = defineProps<{ model: DiagramModel }>()
+const props = withDefaults(defineProps<{ model: DiagramModel; hint?: string }>(), {
+  hint: 'Click a phase box to filter the events below; click the ADW box for all events.',
+})
 const emit = defineEmits<{ 'phase-click': [instanceId: string]; 'runner-click': [] }>()
 
 const zoom = ref(1)
@@ -40,7 +42,7 @@ function select(column: DiagramColumn): void {
       <span class="sd-zoom-value">{{ Math.round(zoom * 100) }}%</span>
       <button type="button" class="sd-zoom" aria-label="Zoom in" @click="zoom = Math.min(2, zoom + 0.1)">+</button>
       <button type="button" class="sd-zoom" @click="zoom = 1">Reset</button>
-      <span class="sd-hint">Click a phase box to filter the events below; click the ADW box for all events.</span>
+      <span class="sd-hint">{{ hint }}</span>
     </div>
     <div class="sd-scroll">
       <div class="sd-canvas" :style="{ zoom, minWidth }">

@@ -325,6 +325,9 @@ class GetRoutesMixin:
         if path == '/api/adw-debugger/feed':
             return self.json_response(adw_debugger_feed.payload(query))
 
+        if path == '/api/adw-debugger/run':
+            return self.json_response(adw_debugger_feed.run_payload(query))
+
         if path == '/api/worker-activity':
             return self.json_response(worker_activity.payload())
 
