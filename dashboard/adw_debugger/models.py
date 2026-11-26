@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class DebuggerSettings(BaseModel):
     db_path: str
+    legacy_db_path: str | None = None
     # '*' follows every ADW that records into sssf.db, so the newest one started
     # is the one on screen. A list of names follows only those.
     adw_names: list[str] = Field(default_factory=lambda: ['*'])

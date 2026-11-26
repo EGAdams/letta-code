@@ -15,6 +15,7 @@ from pathlib import Path
 from .models import DebuggerSettings
 
 DEFAULT_DB = '~/agent_blocks/adws/adw_data/sssf.db'
+LEGACY_DB = '~/agent_blocks/adws/adws/adw_data/sssf.db'
 CONFIG_FILE = Path(__file__).resolve().parent.parent / 'config' / 'adw_debugger.json'
 
 
@@ -43,4 +44,9 @@ class FileAndEnvSettings:
         if env.get('ADW_DEBUGGER_STALL_SECONDS'):
             values['stall_timeout_seconds'] = float(env['ADW_DEBUGGER_STALL_SECONDS'])
         values['db_path'] = os.path.expanduser(str(values['db_path']))
+        if 'legacy_db_path' not in values and values['db_path'] == os.path.expanduser(DEFAULT_DB):
+            values['legacy_db_path'] = LEGACY_DB
+        if values.get('legacy_db_path'):
+            legacy = Path(str(values['legacy_db_path'])).expanduser()
+            values['legacy_db_path'] = str(legacy) if legacy.is_file() else None
         return DebuggerSettings(**values)

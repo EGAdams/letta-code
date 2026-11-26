@@ -72,9 +72,13 @@ class AdwDebuggerFeed:
             return response
         try:
             repository: IAdwEventRepository = self._repository_for(settings.db_path)
-            head = repository.head_cursor()
             run = repository.run(run_id)
-            raw = repository.events_for_runs([run_id], after or 0) if run else []
+            if run is None and settings.legacy_db_path:
+                repository = self._repository_for(settings.legacy_db_path)
+                run = repository.run(run_id)
+            if run is not None:
+                head = repository.head_cursor()
+                raw = repository.events_for_runs([run_id], after or 0)
         except Exception as error:               # noqa: BLE001 -- a broken trace db must not break the page
             response.ok, response.error = False, f'{type(error).__name__}: {error}'
             return response

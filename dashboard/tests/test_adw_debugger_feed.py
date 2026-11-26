@@ -188,3 +188,21 @@ def test_one_run_read_of_an_unknown_run_fails_closed(trace):
     result = feed(trace).read_run('nope', None)
     assert result.ok is False and 'nope' in result.error and result.events == []
     assert feed(trace).read_run('', None).ok is False
+
+
+def test_one_run_read_recovers_legacy_trace_with_its_own_cursor(trace, tmp_path):
+    legacy = Trace(tmp_path / 'legacy.db')
+    legacy.run('triage', adw='adw_failure_triage', status='success')
+    legacy.event('triage', 'phase_start', {}, 'triage_01_collect', 'collect')
+    legacy.event('triage', 'phase_end', {'status': 'pass'}, 'triage_01_collect', 'collect')
+    trace.run('primary')
+    trace.event('primary', 'phase_start', {}, 'primary_01_collect', 'collect')
+    service = feed(trace, legacy_db_path=legacy.path)
+
+    first = service.read_run('triage', None)
+    assert first.ok and first.runs[0].status == 'success'
+    assert [event.cursor for event in first.events] == [1, 2]
+    assert first.cursor == 2
+    assert service.read_run('triage', first.cursor).events == []
+    assert service.read_run('primary', None).cursor == 1
+    assert [run.run_id for run in service.read(None).runs] == ['primary']
