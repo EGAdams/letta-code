@@ -12,13 +12,23 @@ import type {
   IRunSelectionPolicy,
   ISequenceDiagramRenderer,
   IStallPolicy,
+  ISupervisorEventSource,
   ITimer,
   RunSelection,
   RunSummary,
+  SupervisorEvent,
+  SupervisorPage,
 } from "./contracts";
+import { hasKnownExecutionHost, isDadsComputer } from "./domain/host-filter";
 import { clearRun, type LogFilter, linesFor } from "./domain/log-selection";
 import { project } from "./domain/projector";
 import { type DebuggerState, emptyState } from "./domain/state";
+import {
+  agentsOf,
+  awakeState,
+  type SupervisorView,
+  linesFor as supervisorLines,
+} from "./domain/supervisor";
 import { type DebuggerView, describe, diagramFor } from "./domain/view";
 
 export interface ControllerDependencies {
@@ -31,6 +41,10 @@ export interface ControllerDependencies {
   clock: IClock & { align?(serverNow: string): void };
   timer: ITimer;
   tickMs?: number;
+  /** Supervisor records; absent where the page has no live-activity feed. Read-only. */
+  supervisor?: ISupervisorEventSource;
+  /** Machines the supervisor pane can be pointed at; "" is the machine serving the dashboard. */
+  machines?: string[];
 }
 
 export class DebuggerController {
@@ -41,6 +55,14 @@ export class DebuggerController {
   private timeoutSeconds = 120;
   private lastDelayMs: number | null = null;
   private renderError = "";
+  private dadsComputerOnly = false;
+  private supervisorEvents: SupervisorEvent[] = [];
+  private supervisorGaps: string[] = [];
+  private supervisorError = "";
+  private supervisorMachine = "";
+  private supervisorAgent = "";
+  private supervisorCorrelate = false;
+  private unsubscribeSupervisor: (() => void) | null = null;
   private tick: unknown = null;
   private unsubscribe: (() => void) | null = null;
   private readonly listeners = new Set<(view: DebuggerView) => void>();
@@ -56,6 +78,18 @@ export class DebuggerController {
       },
     });
     this.deps.source.start();
+    this.unsubscribeSupervisor =
+      this.deps.supervisor?.subscribe({
+        onPage: (page) => this.onSupervisorPage(page),
+        onConnection: (state) => {
+          this.supervisorError =
+            state.status === "disconnected" || state.status === "degraded"
+              ? state.reason
+              : "";
+          this.publish();
+        },
+      }) ?? null;
+    this.deps.supervisor?.start();
     const again = () => {
       this.publish();
       this.tick = this.deps.timer.set(again, this.deps.tickMs ?? 1000);
@@ -66,11 +100,14 @@ export class DebuggerController {
   /** The view came into sight: catch up now rather than on the slow cadence. */
   wake(): void {
     this.deps.source.wake();
+    this.deps.supervisor?.wake();
   }
 
   dispose(): void {
     this.deps.source.stop();
     this.unsubscribe?.();
+    this.deps.supervisor?.stop();
+    this.unsubscribeSupervisor?.();
     this.deps.timer.clear(this.tick);
     this.deps.legacy.setVisible(true);
     this.listeners.clear();
@@ -100,6 +137,42 @@ export class DebuggerController {
     this.publish();
   }
 
+  toggleDadsComputerOnly(): void {
+    this.dadsComputerOnly = !this.dadsComputerOnly;
+    const selected = this.selected.runId
+      ? this.state.runs[this.selected.runId]
+      : undefined;
+    if (this.dadsComputerOnly && selected && !isDadsComputer(selected)) {
+      this.selected = { runId: null, pinReleased: false };
+      this.filter = { mode: "all" };
+    }
+    this.follow(this.deps.selection.select(this.selected, this.runs()));
+    this.publish();
+  }
+
+  /** Point the supervisor pane at another machine. Never touches the run's own events. */
+  selectSupervisorMachine(machine: string): void {
+    if (machine === this.supervisorMachine) return;
+    this.supervisorMachine = machine;
+    this.supervisorEvents = [];
+    this.supervisorGaps = [];
+    this.supervisorAgent = "";
+    this.deps.supervisor?.setMachine(machine);
+    this.publish();
+  }
+
+  selectSupervisorAgent(agent: string): void {
+    this.supervisorAgent = agent;
+    this.publish();
+  }
+
+  /** Show only the records that carry the selected run's id. Off by default. */
+  toggleSupervisorCorrelation(): void {
+    this.supervisorCorrelate = !this.supervisorCorrelate;
+    this.publish();
+  }
+
+  /** Clears the run's terminal view only; supervisor and audit records are never removed. */
   clearSelectedRun(): void {
     if (!this.selected.runId) return;
     clearRun(this.state, this.selected.runId, this.deps.cleared);
@@ -112,11 +185,44 @@ export class DebuggerController {
   }
 
   private runs(): RunSummary[] {
-    return Object.values(this.state.runs).map((run) => ({
-      runId: run.runId,
-      status: run.status,
-      startedAt: run.startedAt,
-    }));
+    return Object.values(this.state.runs)
+      .filter((run) => !this.dadsComputerOnly || isDadsComputer(run))
+      .map((run) => ({
+        runId: run.runId,
+        status: run.status,
+        startedAt: run.startedAt,
+      }));
+  }
+
+  private onSupervisorPage(page: SupervisorPage): void {
+    this.deps.clock.align?.(page.server_now);
+    this.supervisorEvents = page.supervisor_events;
+    this.supervisorGaps = page.gaps;
+    this.publish();
+  }
+
+  private supervisorView(runId: string | null): SupervisorView {
+    const correlate = this.supervisorCorrelate && runId !== null;
+    const lines = supervisorLines(this.supervisorEvents, {
+      agent: this.supervisorAgent,
+      runId: correlate ? runId : null,
+    });
+    return {
+      available: this.deps.supervisor !== undefined,
+      machine: this.supervisorMachine,
+      machines: this.deps.machines ?? [""],
+      agents: agentsOf(this.supervisorEvents),
+      agent: this.supervisorAgent,
+      correlate: this.supervisorCorrelate,
+      correlateLabel: runId
+        ? `Only records for run ${runId}`
+        : "Only records for the selected run (no run selected)",
+      lines,
+      total: this.supervisorEvents.length,
+      gaps: this.supervisorGaps,
+      error: this.supervisorError,
+      awake: awakeState(this.supervisorEvents),
+    };
   }
 
   private follow(next: RunSelection): void {
@@ -158,6 +264,10 @@ export class DebuggerController {
         selectedInstance,
       ),
     );
+    const allRuns = Object.values(this.state.runs);
+    const visibleRuns = this.dadsComputerOnly
+      ? allRuns.filter(isDadsComputer)
+      : allRuns;
     return {
       runId: run?.runId ?? null,
       adwName: run?.adwName ?? "",
@@ -170,6 +280,10 @@ export class DebuggerController {
       renderError: rendered.error || this.renderError,
       stallTimeoutSeconds: this.timeoutSeconds,
       lastDelayMs: this.lastDelayMs,
+      dadsComputerOnly: this.dadsComputerOnly,
+      dadsComputerFilterAvailable: allRuns.some(hasKnownExecutionHost),
+      dadsComputerVisibleRuns: visibleRuns.length,
+      supervisor: this.supervisorView(run?.runId ?? null),
       ...describe(run, mode, this.filter, this.state),
     };
   }

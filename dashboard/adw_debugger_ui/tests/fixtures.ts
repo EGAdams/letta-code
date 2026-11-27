@@ -34,6 +34,7 @@ export function ev(
     kind,
     message: "",
     machine: "box",
+    execution_host: null,
     adw_name: "adw_debug_pilot",
     run_id: run,
     phase_id: "",
@@ -62,6 +63,7 @@ export function run(
     started_at: at(started),
     ended_at: null,
     process_alive: status === "running",
+    execution_host: null,
   };
 }
 

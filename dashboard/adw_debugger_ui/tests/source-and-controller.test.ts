@@ -170,6 +170,37 @@ const statuses = (view: DebuggerView) =>
   phaseColumns(view).map((column) => `${column.name}:${column.status}`);
 
 describe("controller", () => {
+  it("fails closed when Dad is not registered, even with mixed host metadata", () => {
+    const h = harness(new NewestRunPolicy());
+    h.source.push(
+      page(
+        [
+          { ...run("dad", "success", 0), execution_host: "DADSComputer" },
+          { ...run("other", "success", 1), execution_host: "other-box" },
+        ],
+        [],
+      ),
+    );
+    expect(h.view().runId).toBe("other");
+    h.controller.toggleDadsComputerOnly();
+    expect(h.view().runId).toBeNull();
+    expect(h.view().dadsComputerOnly).toBe(true);
+    expect(h.view().dadsComputerVisibleRuns).toBe(0);
+    expect(h.view().dadsComputerFilterAvailable).toBe(true);
+    h.controller.toggleDadsComputerOnly();
+    expect(h.view().dadsComputerOnly).toBe(false);
+    expect(h.view().runId).toBe("other");
+  });
+
+  it("excludes unknown hosts and clears an excluded selection", () => {
+    const h = harness(new NewestRunPolicy());
+    h.source.push(page([{ ...run("unknown"), execution_host: null }], []));
+    h.controller.toggleDadsComputerOnly();
+    expect(h.view().runId).toBeNull();
+    expect(h.view().dadsComputerFilterAvailable).toBe(false);
+    expect(h.view().dadsComputerVisibleRuns).toBe(0);
+  });
+
   it("is honestly idle with nothing recorded, and Clear says why it is disabled", () => {
     const h = harness();
     h.source.push(page([], [], { bootstrap: true }));

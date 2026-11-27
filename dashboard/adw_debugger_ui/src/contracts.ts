@@ -12,6 +12,7 @@ export interface DebugEvent {
   kind: string;
   message: string;
   machine: string;
+  execution_host?: string | null;
   adw_name: string;
   run_id: string;
   phase_id: string;
@@ -34,6 +35,7 @@ export interface DebugRun {
   started_at: string;
   ended_at: string | null;
   process_alive: boolean | null;
+  execution_host?: string | null;
 }
 
 export interface FeedPage {
@@ -180,4 +182,49 @@ export interface RenderResult {
 /** Turns a diagram model into something safe to draw; keeps the last good one. */
 export interface ISequenceDiagramRenderer {
   render(model: DiagramModel): RenderResult;
+}
+
+/**
+ * One supervisor or agent record, as GET /api/live-activity delivers it. Empty
+ * means the source did not record it; the debugger never fills a field in.
+ */
+export interface SupervisorEvent {
+  at: string;
+  machine: string;
+  agent: string;
+  kind: string;
+  state: string;
+  message: string;
+  task_id: string;
+  bridge_task_id: string;
+  request_id: string;
+  adw_id: string;
+  source: string;
+}
+
+export interface SupervisorPage {
+  ok: boolean;
+  error: string;
+  machine: string;
+  server_now: string;
+  supervisor_events: SupervisorEvent[];
+  gaps: string[];
+}
+
+export interface SupervisorListener {
+  onPage(page: SupervisorPage): void;
+  onConnection(state: ConnectionState): void;
+}
+
+/**
+ * Observer subject over one machine's supervisor records. Read-only: nothing
+ * here can write, clear or resend. `setMachine("")` is the machine serving the
+ * dashboard.
+ */
+export interface ISupervisorEventSource {
+  subscribe(listener: SupervisorListener): () => void;
+  start(): void;
+  stop(): void;
+  wake(): void;
+  setMachine(machine: string): void;
 }

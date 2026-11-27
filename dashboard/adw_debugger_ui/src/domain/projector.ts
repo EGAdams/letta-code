@@ -31,6 +31,7 @@ function newRun(run: DebugRun): RunState {
     instanceOfPhase: {},
     arrows: [],
     visible: [],
+    executionHost: run.execution_host ?? null,
   };
 }
 
@@ -243,6 +244,7 @@ export function project(state: DebuggerState, page: FeedPage): DebuggerState {
     const known = next.runs[run.run_id];
     known.status = run.status;
     known.endedAt = run.ended_at;
+    known.executionHost = run.execution_host ?? known.executionHost;
   }
   for (const event of fresh.sort((a, b) => a.cursor - b.cursor)) {
     next.seen[event.event_id] = true;
@@ -254,6 +256,7 @@ export function project(state: DebuggerState, page: FeedPage): DebuggerState {
       started_at: event.recorded_at,
       ended_at: null,
       process_alive: null,
+      execution_host: event.execution_host ?? null,
     });
     const run = next.runs[event.run_id];
     applyEvent(run, event);

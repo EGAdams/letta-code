@@ -87,5 +87,12 @@ def adapt(raw: RawEvent, machine: str) -> DebugEvent:
                        kind=raw.type, payload=payload, machine=machine, adw_name=raw.adw_name,
                        run_id=raw.run_id, phase_id=raw.phase_id,
                        phase_name=raw.name if raw.phase_id else '')
+    # Only a producer-supplied execution_host is authoritative.  The dashboard
+    # server's socket hostname is deliberately not used for this purpose.
+    host = payload.get('execution_host')
+    if not isinstance(host, str) and isinstance(payload.get('adw_debug'), dict):
+        host = payload['adw_debug'].get('execution_host')
+    if isinstance(host, str) and host.strip():
+        event.execution_host = host.strip()
     detail = payload.get('adw_debug')
     return _instrumented(event, detail) if isinstance(detail, dict) else _plain(event, raw, payload)

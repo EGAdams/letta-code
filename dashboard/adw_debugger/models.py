@@ -51,6 +51,7 @@ class DebugEvent(BaseModel):
     message: str = ''
     payload: dict[str, Any] = Field(default_factory=dict)
     machine: str = ''
+    execution_host: str | None = None
     adw_name: str = ''
     run_id: str = ''
     phase_id: str = ''
@@ -72,6 +73,7 @@ class DebugRun(BaseModel):
     started_at: str = ''
     ended_at: Optional[str] = None
     process_alive: Optional[bool] = None    # None = no process row to judge by
+    execution_host: str | None = None
 
 
 class FeedResponse(BaseModel):

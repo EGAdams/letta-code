@@ -56,8 +56,9 @@ class AdwDebuggerFeed:
             return response
         last = raw[-1].cursor if raw else 0
         response.cursor = last if full_page else max(head, last, after or 0)
-        response.runs = [self._run(run) for run in runs]
         response.events = [adapt(event, self._machine) for event in raw]
+        hosts = self._hosts(response.events)
+        response.runs = [self._run(run, hosts.get(run.run_id)) for run in runs]
         return response
 
     def read_run(self, run_id: str, after: int | None) -> FeedResponse:
@@ -86,11 +87,19 @@ class AdwDebuggerFeed:
             response.ok, response.error = False, f'no ADW run {run_id} in the trace database'
             return response
         response.cursor = max(head, after or 0)
-        response.runs = [self._run(run)]
         response.events = [adapt(event, self._machine) for event in raw]
+        response.runs = [self._run(run, self._hosts(response.events).get(run_id))]
         return response
 
-    def _run(self, run: RunRow) -> DebugRun:
+    @staticmethod
+    def _hosts(events):
+        hosts = {}
+        for event in events:
+            if event.execution_host and event.run_id not in hosts:
+                hosts[event.run_id] = event.execution_host
+        return hosts
+
+    def _run(self, run: RunRow, execution_host=None) -> DebugRun:
         alive = None
         if run.pid is not None:
             alive = run.process_ended_at is None and self._processes.alive(run.pid, run.process_command)
@@ -98,7 +107,8 @@ class AdwDebuggerFeed:
         if status == 'running' and alive is False:
             status = 'interrupted'               # the process is gone and never recorded an outcome
         return DebugRun(run_id=run.run_id, adw_name=run.adw_name, status=status,
-                        started_at=run.started_at, ended_at=run.ended_at, process_alive=alive)
+                        started_at=run.started_at, ended_at=run.ended_at, process_alive=alive,
+                        execution_host=execution_host)
 
 
 def _after(query: dict) -> int | None:

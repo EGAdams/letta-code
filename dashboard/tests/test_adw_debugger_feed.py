@@ -76,6 +76,14 @@ def test_bootstrap_returns_the_run_and_every_one_of_its_events(trace):
     assert result.cursor == 2 and result.stall_timeout_seconds == 120
 
 
+def test_execution_host_is_producer_metadata_not_dashboard_hostname(trace):
+    trace.run('dad')
+    trace.event('dad', 'log', {'execution_host': 'DADSComputer'})
+    result = feed(trace).read(None)
+    assert result.runs[0].execution_host == 'DADSComputer'
+    assert result.events[0].execution_host == 'DADSComputer'
+
+
 def test_incremental_read_delivers_only_newer_monitored_events(trace):
     trace.run('r1')
     trace.run('other', adw='adw_bridge_worker')

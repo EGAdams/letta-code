@@ -17,6 +17,7 @@ import {
   RUNNER,
   type RunState,
 } from "./state";
+import type { SupervisorView } from "./supervisor";
 
 export interface DebuggerView {
   runId: string | null;
@@ -36,6 +37,10 @@ export interface DebuggerView {
   renderError: string;
   stallTimeoutSeconds: number;
   lastDelayMs: number | null;
+  dadsComputerOnly: boolean;
+  dadsComputerFilterAvailable: boolean;
+  dadsComputerVisibleRuns: number;
+  supervisor: SupervisorView;
 }
 
 const MODE_LABEL: Record<RunMode, string> = {

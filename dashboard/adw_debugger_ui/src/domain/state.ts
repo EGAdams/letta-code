@@ -59,6 +59,7 @@ export interface RunState {
   instanceOfPhase: Record<string, string>;
   arrows: ArrowState[];
   visible: string[];
+  executionHost: string | null;
 }
 
 export interface DebuggerState {

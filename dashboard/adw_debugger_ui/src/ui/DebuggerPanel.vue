@@ -5,6 +5,7 @@ import type { DebuggerController } from '../controller'
 import type { DebuggerView } from '../domain/view'
 import LogPane from './LogPane.vue'
 import SequenceDiagram from './SequenceDiagram.vue'
+import SupervisorPane from './SupervisorPane.vue'
 
 const props = defineProps<{ controller: DebuggerController }>()
 const view = shallowRef<DebuggerView | null>(null)
@@ -57,6 +58,16 @@ const LEGEND = [
 
     <div class="adwdbg-bar">
       <button type="button" class="am-btn" data-action="follow-live" @click="props.controller.followLive()">Follow live</button>
+      <button type="button" class="am-btn" data-action="dads-computer-only"
+              :aria-pressed="view.dadsComputerOnly" @click="props.controller.toggleDadsComputerOnly()">
+        Dad's Computer Only
+      </button>
+      <span v-if="view.dadsComputerOnly && !view.dadsComputerFilterAvailable" class="adwdbg-note">
+        Execution host metadata is not available; no runs can be verified as Dad's computer.
+      </span>
+      <span v-else-if="view.dadsComputerOnly && view.dadsComputerVisibleRuns === 0" class="adwdbg-note">
+        No verified Dad's computer runs.
+      </span>
       <button type="button" class="am-btn" data-action="all-events" :disabled="!view.phaseSelected"
               @click="props.controller.allEvents()">All events</button>
       <button type="button" class="am-btn" data-action="clear-run" :disabled="!!view.clearDisabledReason"
@@ -69,6 +80,11 @@ const LEGEND = [
     </div>
 
     <LogPane :lines="view.lines" :label="`ADW events — ${view.filterLabel}`" :tall="view.phaseSelected" />
+
+    <SupervisorPane v-if="view.supervisor.available" :supervisor="view.supervisor"
+                    @machine="props.controller.selectSupervisorMachine($event)"
+                    @agent="props.controller.selectSupervisorAgent($event)"
+                    @correlate="props.controller.toggleSupervisorCorrelation()" />
   </section>
 </template>
 

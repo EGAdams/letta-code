@@ -14,6 +14,7 @@ import {
 } from "./infra/browser";
 import { PollingEventSource } from "./infra/polling-event-source";
 import { LastGoodDiagramRenderer } from "./infra/safe-renderer";
+import { PollingSupervisorSource } from "./infra/supervisor-source";
 import DebuggerPanel from "./ui/DebuggerPanel.vue";
 
 export interface MountedDebugger {
@@ -52,6 +53,16 @@ export function mountAdwDebugger(
     legacy: new DomLegacyTerminal(stream),
     clock: new ServerAlignedClock(),
     timer,
+    supervisor: new PollingSupervisorSource(new FetchJson(), timer, {
+      url: "/api/live-activity",
+      activeMs: 3000,
+      idleMs: 15000,
+      retryStepMs: 2000,
+      retryMaxMs: 15000,
+      isActive: () =>
+        view.classList.contains("active") && doc.visibilityState !== "hidden",
+    }),
+    machines: ["", "SQMC", "BATI", "R46"],
   });
   const app: App = createApp(DebuggerPanel, { controller });
   app.mount(host);
