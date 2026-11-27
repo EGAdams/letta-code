@@ -44,7 +44,7 @@ GET_ROUTES = [
     '/api/notes',
     '/api/vendor-keys', '/api/voice-media-backend', '/api/wsl-interop',
     '/api/agent-bridge-poll',
-    '/api/printer', '/api/worker-activity', '/api/adw-debugger/feed', '/api/adw-debugger/run',
+    '/api/printer', '/api/worker-activity', '/api/live-activity', '/api/adw-debugger/feed', '/api/adw-debugger/run',
     '/api/remediation-models', '/api/alert-remediation/status',
     '/report-source-document',
     '/api/scan-bridge/v1/scans', '/api/scan-bridge/v1/scans/scan_01ARZ3NDEKTSV4RRFFQ69G5FAV',

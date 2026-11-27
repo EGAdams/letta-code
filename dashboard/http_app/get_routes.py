@@ -47,6 +47,7 @@ from monitoring import wsl_interop_entry
 from monitoring import agent_bridge_poll
 from monitoring import model_registry
 from monitoring import printer_panel
+from monitoring import live_activity
 from monitoring import worker_activity
 from monitoring import service_management
 from monitoring.pc_metrics import PC_MONITORS
@@ -327,6 +328,9 @@ class GetRoutesMixin:
 
         if path == '/api/adw-debugger/run':
             return self.json_response(adw_debugger_feed.run_payload(query))
+
+        if path == '/api/live-activity':
+            return self.json_response(live_activity.payload(query))
 
         if path == '/api/worker-activity':
             return self.json_response(worker_activity.payload())

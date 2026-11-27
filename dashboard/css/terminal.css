@@ -17,3 +17,12 @@
 .terminal-line { white-space: pre-wrap; overflow-wrap: anywhere; }
 .terminal-line-gap { color: #ffcc66; }
 .terminal-empty { color: #888; }
+.terminal-line-head { color: #7fd4ff; margin-top: 4px; }
+.terminal-line-bad { color: #ff7b72; }
+.supervisor-log { margin: 8px 0; }
+.supervisor-log summary { cursor: pointer; font-weight: 600; }
+.supervisor-now, .supervisor-timeline { box-sizing: border-box; background: #000; color: #fff; padding: 8px 12px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace; overflow-y: auto; }
+.supervisor-now { max-height: 22vh; border-bottom: 1px solid #444; }
+.supervisor-timeline { height: 32vh; min-height: 160px; }
+.supervisor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0; }
