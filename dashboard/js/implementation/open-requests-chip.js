@@ -102,7 +102,7 @@ export class OpenRequestsChip {
     box.id = "open-requests-chip";
     Object.assign(box.style, {
       position: "fixed",
-      left: "12px",
+      right: "12px",
       bottom: "12px",
       zIndex: "9999",
       maxWidth: "min(460px, calc(100vw - 24px))",
