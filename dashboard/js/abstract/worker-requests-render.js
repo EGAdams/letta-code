@@ -33,9 +33,9 @@ function watchLine(state) {
   const refresh = w.refresh_seconds;
   if (typeof ago !== "number")
     return `<p class="am-warn">Gateway watch health is unknown.</p>`;
-  // The cron runs bin/watch.php every 5 min; any client call refreshes sooner.
+  // The cron runs bin/watch.php every 20 min; any client or worker call refreshes sooner.
   const late = ago > 600;
-  return `<p class="${late ? "am-warn" : "am-dim"}">Gateway watch last checked ${esc(String(ago))} s ago${refresh ? ` (refreshes every ${esc(String(refresh))} s on any call; cron every 5 min)` : ""}${late ? " — later than expected" : ""}.</p>`;
+  return `<p class="${late ? "am-warn" : "am-dim"}">Gateway watch last checked ${esc(String(ago))} s ago${refresh ? ` (refreshes every ${esc(String(refresh))} s on any call; cron every 20 min)` : ""}${late ? " — later than expected" : ""}.</p>`;
 }
 
 function deliverables(list) {

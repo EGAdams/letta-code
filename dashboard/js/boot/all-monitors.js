@@ -6,6 +6,7 @@ import { PollScheduler } from "../abstract/monitors/sources/poll-scheduler.js";
 import { TabAlertObserver } from "../abstract/monitors/tab-alert-observer.js";
 import { defineMonitorComponents } from "../components/define-monitor-components.js";
 import { FetchHttpClient } from "../implementation/fetch-http-client.js";
+import { OpenRequestsChip } from "../implementation/open-requests-chip.js";
 
 const VISIBLE_MS = 15000;
 const BACKGROUND_EVERY = 4; // while another tab is open, poll once a minute
@@ -37,3 +38,5 @@ export function bootAllMonitors(doc = document) {
 }
 
 bootAllMonitors();
+// On every tab, not only this one: stalled requests stay visible after "Got it".
+new OpenRequestsChip({ http: new FetchHttpClient() }).start();
