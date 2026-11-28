@@ -109,3 +109,20 @@ describe("buildRemediationPrompt", () => {
     expect(prompt).toContain("Task ID(s): none reported");
   });
 });
+
+describe("a Star Trek Bridge gateway alert", () => {
+  test("gets follow-through steps, not a re-run-and-add-a-test bug report", () => {
+    const out = buildRemediationPrompt(
+      {
+        title: "a request has stopped making progress",
+        text: "Request rq_1 stalled",
+        agent: "bridge",
+        ids: ["al_6aea"],
+      },
+      { generatedAt: "2026-11-28T13:54:42Z", host: "h" },
+    );
+    expect(out).toContain("# Follow-through needed:");
+    expect(out).toContain("alert ids, not task ids");
+    expect(out).not.toContain("Re-run the task");
+  });
+});

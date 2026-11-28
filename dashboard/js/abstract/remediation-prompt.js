@@ -59,6 +59,9 @@ export function buildRemediationPrompt(alert, { generatedAt, host } = {}) {
     host ||
     (typeof globalThis !== "undefined" ? globalThis.location?.hostname : "") ||
     "unknown host";
+  // A Star Trek Bridge gateway alert (al_...) reports the state of a request or
+  // task. There is no failed run to repeat, so it gets follow-through steps.
+  const fromGateway = ids.length > 0 && ids.every((id) => /^al_/.test(id));
   const paths = extractPaths(text);
   const related = (alert?.sources || [])
     .filter(
@@ -67,6 +70,36 @@ export function buildRemediationPrompt(alert, { generatedAt, host } = {}) {
     .map((s) =>
       `- ${redactSecrets(s.title || "")}: ${redactSecrets(s.text || "")}`.trim(),
     );
+
+  const secrets = [
+    "",
+    "## Secrets",
+    "Any credentials, tokens, or keys detected above have been redacted; do not reintroduce real secrets into code, logs, or commit messages.",
+  ];
+  if (fromGateway) {
+    return [
+      `# Follow-through needed: ${title}`,
+      "",
+      "## What the Bridge reports",
+      text || "(no alert text was reported)",
+      "",
+      "## Context",
+      `- Timestamp: ${when}`,
+      `- Host: ${where}`,
+      `- Severity: ${severity}`,
+      `- Alert ID(s): ${ids.join(", ")} (alert ids, not task ids)`,
+      "",
+      "## What to do",
+      "1. Read the current record first (request_status or get_agent_task_result); it may have moved on.",
+      "2. Do the next step once, or record the real blocker and its owner, or close it with the reason.",
+      "3. Never resend a task, print or mail to clear an alert, and never add a progress note only to reset the timer.",
+      "4. Change code only if the record itself is wrong, and then say which part.",
+      "",
+      "## Done when",
+      "- [ ] The request has evidence of completion, a named blocker and owner, or a recorded reason for closing it.",
+      ...secrets,
+    ].join("\n");
+  }
 
   const lines = [
     `# Remediation request: ${title}`,
@@ -104,9 +137,7 @@ export function buildRemediationPrompt(alert, { generatedAt, host } = {}) {
     "- [ ] The exact error text above no longer occurs for this agent/task.",
     "- [ ] A new or updated automated test reproduces the original failure and asserts it is fixed.",
     "- [ ] The existing test suite still passes.",
-    "",
-    "## Secrets",
-    "Any credentials, tokens, or keys detected above have been redacted; do not reintroduce real secrets into code, logs, or commit messages.",
+    ...secrets,
   );
   return lines.join("\n");
 }
